@@ -1,4 +1,4 @@
-import time, uuid, logging
+import time, uuid, logging, hmac
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -13,9 +13,9 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
         start = time.perf_counter()
         # 健康检查免鉴权；其余路径校验 X-API-Key
         if not request.url.path.endswith("/health"):
-            key = request.headers.get("X-API-Key")
-            if key != settings.api_key:
-                return JSONResponse({"error": {"code": "UNAUTHORIZED", "message": "bad api key"}}, status_code=401)
+            key = request.headers.get("X-API-Key") or ""
+            if not hmac.compare_digest(key, settings.api_key):
+                return JSONResponse({"error": {"code": "UNAUTHORIZED", "message": "bad api key"}}, status_code=401, headers={"X-Request-ID": rid})
         response = await call_next(request)
         latency = (time.perf_counter() - start) * 1000
         metrics.record_request(latency)
