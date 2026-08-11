@@ -1,6 +1,7 @@
 .env
 __pycache__/
 *.pyc
+qdrant_local/
 .venv/
 node_modules/
 .next/
