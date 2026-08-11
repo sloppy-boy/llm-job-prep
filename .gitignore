@@ -7,3 +7,4 @@ node_modules/
 .pytest_cache/
 *.egg-info/
 .superpowers/
+mock_orders.db
