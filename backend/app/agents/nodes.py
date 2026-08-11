@@ -1,6 +1,8 @@
+import json
 from app.rag.retrieve import hybrid_search, rerank
 from app.llm import chat
 from app.agents.state import AgentState
+from app.tools import order_tools
 
 SYSTEM = "你是电商售后智能客服。只基于提供的检索资料回答；资料不足时明确说不知道并建议转人工，绝不编造。"
 
@@ -25,17 +27,35 @@ def retriever_node(state: AgentState) -> dict:
     except Exception:
         return {"retrieved_chunks": []}
 
+def tool_node(state: AgentState) -> dict:
+    """订单域：让 LLM 决定工具调用并执行；其他域直接透传空结果。失败兜底，不中断流程。"""
+    if state["domain"] != "order":
+        return {"tool_results": []}
+    try:
+        resp = chat([
+            {"role": "system", "content": "从用户话术中提取订单号，选择合适工具。只输出JSON：{\"name\":工具名,\"args\":{}}"},
+            {"role": "user", "content": state["question"]},
+        ], tools=order_tools.TOOLS, stream=False)
+        call = json.loads(resp)
+        result = json.loads(order_tools.dispatch(call["name"], call.get("args", {})))
+    except Exception:
+        result = {"error": "无法解析工具调用或执行失败"}
+    return {"tool_results": [result]}
+
 def writer_node(state: AgentState) -> dict:
     """基于检索资料组织回答；无资料时必须如实告知并建议转人工，禁止编造。"""
     msgs = [{"role": "system", "content": SYSTEM}]
     msgs.extend(state.get("history", []))
+    tool_text = ""
+    if state.get("tool_results"):
+        tool_text = "\n工具查询结果：" + str(state["tool_results"])
     if state["domain"] == "chitchat":
         user = f"用户寒暄：{state['question']}\n请礼貌简短回应，并引导用户提出售后问题。"
     elif not state.get("retrieved_chunks"):
-        user = f"知识库没有检索到相关内容。请如实告诉用户'暂时没有找到相关说明，可转人工处理'，不要编造。\n问题：{state['question']}"
+        user = f"知识库没有检索到相关内容。请如实告诉用户'暂时没有找到相关说明，可转人工处理'，不要编造。{tool_text}\n问题：{state['question']}"
     else:
         ctx = "\n\n".join(f"[{d['title']}]\n{d['text']}" for d in state["retrieved_chunks"])
-        user = f"检索资料：\n{ctx}\n\n问题：{state['question']}"
+        user = f"检索资料：\n{ctx}{tool_text}\n\n问题：{state['question']}"
     msgs.append({"role": "user", "content": user})
     if state.get("review_comment"):
         msgs.append({"role": "user", "content": f"上次回答被审核打回，原因：{state['review_comment']}。请修正。"})
