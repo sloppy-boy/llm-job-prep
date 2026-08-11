@@ -56,8 +56,10 @@ llm-job-prep/
 │   ├── tests/                   # pytest
 │   ├── requirements.txt
 │   └── Dockerfile
-├── frontend/                    # Next.js
-│   ├── app/page.tsx             # 聊天界面
+├── frontend/                    # Next.js 客服工作台（三栏）
+│   ├── app/page.tsx             # 三栏工作台布局
+│   ├── components/              # SessionList / ChatWindow / ContextPanel / MessageCard
+│   ├── lib/sse.ts               # SSE 消费工具
 │   ├── package.json
 │   └── Dockerfile
 ├── docker-compose.yml
@@ -1014,9 +1016,10 @@ git add -A && git commit -m "feat: 工具层接入（查订单/物流/退款/转
 
 **Interfaces:**
 - Consumes: `run_agent`（Task 7）
-- Produces: `POST /api/v1/chat`，body `{"session_id","message","history"?}`，响应 SSE：`data: {"type":"token","text":"..."}`、`data: {"type":"sources","items":[...]}`、`data: {"type":"done"}`
+- Produces: `POST /api/v1/chat`，body `{"session_id","message","history"?}`，响应 SSE 事件序列：
+  `data: {"type":"thinking","status":"..."}` → `card`*（工具结果卡片）→ `token`*（流式文本）→ `sources` → `done`
 
-- [ ] **Step 1: 写 chat.py（先用非流式 fallback，SSE 事件封装）**
+- [ ] **Step 1: 写 chat.py（SSE 事件封装：thinking/card/token/sources/done）**
 
 ```python
 import json
@@ -1032,10 +1035,21 @@ class ChatRequest(BaseModel):
     message: str
     history: list = []
 
+def _kind_of(tool_result: dict) -> str:
+    # 根据工具结果字段推断卡片类型
+    if "refund_id" in tool_result:
+        return "refund"
+    if "order_id" in tool_result and ("status" in tool_result or "items" in tool_result):
+        return "order"
+    return "logistics"
+
 @router.post("/chat")
 async def chat(req: ChatRequest):
     async def gen():
+        yield {"event": "message", "data": json.dumps({"type": "thinking", "status": "正在识别问题类别..."}, ensure_ascii=False)}
         result = await _async_run(req)
+        for tool in result["tool_results"]:
+            yield {"event": "message", "data": json.dumps({"type": "card", "kind": _kind_of(tool), "data": tool}, ensure_ascii=False)}
         for token in result["answer"].split(" "):
             yield {"event": "message", "data": json.dumps({"type": "token", "text": token + " "}, ensure_ascii=False)}
         yield {"event": "message", "data": json.dumps({"type": "sources", "items": result["sources"]}, ensure_ascii=False)}
@@ -1046,7 +1060,11 @@ async def _async_run(req: ChatRequest):
     # 阻塞式 LLM 简化版：后续可改真流式
     from app.agents.graph import run_agent
     result = run_agent(req.message, req.session_id, req.history)
-    return {"answer": result.get("draft_answer", ""), "sources": result.get("retrieved_chunks", [])}
+    return {
+        "answer": result.get("draft_answer", ""),
+        "sources": result.get("retrieved_chunks", []),
+        "tool_results": result.get("tool_results", []),
+    }
 ```
 
 （`main.py` 中 `app.include_router(chat.router, prefix="/api/v1")`）
@@ -1060,13 +1078,15 @@ from app.main import app
 def test_chat_returns_sse(monkeypatch):
     import app.api.chat as chat_mod
     def fake_run(q, sid, hist):
-        return {"draft_answer": "可以，支持7天无理由。", "retrieved_chunks": [{"title": "七天无理由", "text": "支持"}]}
+        return {"draft_answer": "可以，支持7天无理由。",
+                "retrieved_chunks": [{"title": "七天无理由", "text": "支持"}],
+                "tool_results": [{"order_id": "20260811001", "status": "已发货", "items": "智能音箱", "amount": 299.0}]}
     monkeypatch.setattr(chat_mod, "_async_run", fake_run)
     c = TestClient(app)
-    r = c.post("/api/v1/chat", json={"session_id": "s1", "message": "能退货吗"},
+    r = c.post("/api/v1/chat", json={"session_id": "s1", "message": "订单到哪了"},
                headers={"X-API-Key": "dev-local-key"})
     assert r.status_code == 200
-    assert "token" in r.text and "sources" in r.text
+    assert "token" in r.text and "sources" in r.text and "card" in r.text
 ```
 
 - [ ] **Step 3: 跑测试**
@@ -1318,17 +1338,21 @@ git add -A && git commit -m "feat: 评测管线（25题 + LLM judge）"
 
 ---
 
-## Task 13: Next.js 前端
+## Task 13: Next.js 前端（客服工作台，三栏）
 
 **Files:**
-- Create: `frontend/package.json`
-- Create: `frontend/tsconfig.json`
-- Create: `frontend/app/page.tsx`
+- Create: `frontend/package.json`、`frontend/tsconfig.json`（脚手架生成）
+- Create: `frontend/lib/sse.ts` — SSE 消费工具
+- Create: `frontend/components/MessageCard.tsx` — 结构化卡片（订单/物流/退款）
+- Create: `frontend/components/SessionList.tsx` — 左栏会话列表
+- Create: `frontend/components/ChatWindow.tsx` — 中栏聊天窗（消息+卡片+输入+快捷+评价）
+- Create: `frontend/components/ContextPanel.tsx` — 右栏知识命中面板
+- Create: `frontend/app/page.tsx` — 三栏工作台
 - Create: `frontend/app/globals.css`
 
 **Interfaces:**
-- Consumes: `POST /api/v1/chat`（SSE）
-- Produces: 聊天页面：消息列表 + 输入框 + SSE 流式渲染 + 来源卡片
+- Consumes: SSE 事件（thinking/card/token/sources/done，Task 9）
+- Produces: 三栏客服工作台；结构化卡片由 `card` 事件驱动渲染
 
 - [ ] **Step 1: 初始化 Next.js（用脚手架）**
 
@@ -1337,87 +1361,257 @@ cd /k/claude/llm-job-prep
 npx create-next-app@latest frontend --ts --app --tailwind --no-eslint --import-alias "@/*" --use-npm --yes
 ```
 
-- [ ] **Step 2: 写 page.tsx（核心：SSE 消费 + 流式渲染）**
+- [ ] **Step 2: 写 lib/sse.ts（SSE 消费 + 类型）**
+
+```ts
+export type SSECard = { kind: "order" | "logistics" | "refund"; data: any };
+export type ChatMessage = { role: "user" | "assistant"; content: string; cards?: SSECard[] };
+
+export async function streamChat(
+  sessionId: string,
+  message: string,
+  handlers: {
+    onThinking: (s: string) => void;
+    onToken: (t: string) => void;
+    onCard: (c: SSECard) => void;
+    onSources: (items: { title: string; category: string }[]) => void;
+    onDone: () => void;
+  }
+) {
+  const resp = await fetch("http://localhost:8000/api/v1/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-Key": "dev-local-key" },
+    body: JSON.stringify({ session_id: sessionId, message }),
+  });
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const evt = JSON.parse(line.slice(6));
+      if (evt.type === "thinking") handlers.onThinking(evt.status);
+      else if (evt.type === "token") handlers.onToken(evt.text);
+      else if (evt.type === "card") handlers.onCard({ kind: evt.kind, data: evt.data });
+      else if (evt.type === "sources") handlers.onSources(evt.items);
+      else if (evt.type === "done") handlers.onDone();
+    }
+  }
+}
+```
+
+- [ ] **Step 3: 写 MessageCard.tsx（结构化卡片）**
+
+```tsx
+export default function MessageCard({ card }: { card: { kind: string; data: any } }) {
+  if (card.kind === "order")
+    return (
+      <div className="border rounded-lg p-3 my-2 bg-white shadow-sm">
+        <div className="text-xs text-gray-500 mb-1">📦 订单 {card.data.order_id}</div>
+        <div>状态：<b>{card.data.status}</b></div>
+        <div className="text-xs text-gray-500 mt-1">{card.data.items} · ¥{card.data.amount}</div>
+      </div>
+    );
+  if (card.kind === "logistics")
+    return (
+      <div className="border rounded-lg p-3 my-2 bg-white shadow-sm">
+        <div className="text-xs text-gray-500 mb-1">🚚 物流轨迹</div>
+        {(card.data || []).map((l: any, i: number) => (
+          <div key={i} className="text-sm flex gap-2"><span className="text-gray-400">{l.time}</span><span>{l.event}</span></div>
+        ))}
+      </div>
+    );
+  if (card.kind === "refund")
+    return (
+      <div className="border rounded-lg p-3 my-2 bg-white shadow-sm">
+        <div className="text-xs text-gray-500 mb-1">💸 退款申请</div>
+        <div>申请单：{card.data.refund_id} · 状态：{card.data.status}</div>
+      </div>
+    );
+  return null;
+}
+```
+
+- [ ] **Step 4: 写 SessionList.tsx（左栏会话列表）**
+
+```tsx
+const SEED = ["会话 1", "会话 2", "会话 3"];
+export default function SessionList({ active, onNew, onSelect }: {
+  active: string; onNew: () => void; onSelect: (id: string) => void;
+}) {
+  return (
+    <aside className="w-52 border-r bg-gray-50 flex flex-col">
+      <div className="p-3 border-b">
+        <button className="w-full bg-blue-500 text-white rounded py-1.5 text-sm hover:bg-blue-600" onClick={onNew}>+ 新建会话</button>
+      </div>
+      <ul className="flex-1 overflow-y-auto">
+        {SEED.map((s) => (
+          <li key={s} onClick={() => onSelect(s)}
+              className={`px-3 py-2 cursor-pointer text-sm hover:bg-gray-100 ${active === s ? "bg-blue-100 font-medium" : ""}`}>{s}</li>
+        ))}
+      </ul>
+    </aside>
+  );
+}
+```
+
+- [ ] **Step 5: 写 ChatWindow.tsx（中栏聊天窗）**
 
 ```tsx
 "use client";
-import { useState, useRef } from "react";
+import { useState } from "react";
+import MessageCard from "./MessageCard";
+import { streamChat, type ChatMessage } from "@/lib/sse";
 
-export default function Home() {
-  const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
+const SUGGESTIONS = ["怎么申请退货？", "订单到哪了？", "退款多久到账？"];
+
+export default function ChatWindow({ sessionId, onSources, onThinking }: {
+  sessionId: string;
+  onSources: (items: { title: string; category: string }[]) => void;
+  onThinking: (s: string) => void;
+}) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [sources, setSources] = useState<string[]>([]);
-  const sidRef = useRef(`sess-${Date.now()}`);
+  const [busy, setBusy] = useState(false);
+  const [rating, setRating] = useState<number | null>(null);
 
-  async function send() {
-    const userMsg = input;
-    setInput("");
-    const next = [...messages, { role: "user", content: userMsg }];
-    setMessages(next);
-    const resp = await fetch("http://localhost:8000/api/v1/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": "dev-local-key" },
-      body: JSON.stringify({ session_id: sidRef.current, message: userMsg }),
+  async function send(text?: string) {
+    const userText = (text ?? input).trim();
+    if (!userText || busy) return;
+    setInput(""); setBusy(true); setRating(null);
+    setMessages((ms) => [...ms, { role: "user", content: userText }, { role: "assistant", content: "", cards: [] }]);
+    onThinking("正在识别问题类别...");
+    await streamChat(sessionId, userText, {
+      onThinking: (s) => onThinking(s),
+      onToken: (t) => setMessages((ms) => {
+        const next = [...ms];
+        const last = { ...next[next.length - 1], content: next[next.length - 1].content + t };
+        next[next.length - 1] = last;
+        return next;
+      }),
+      onCard: (c) => setMessages((ms) => {
+        const next = [...ms];
+        const last = { ...next[next.length - 1], cards: [...(next[next.length - 1].cards ?? []), c] };
+        next[next.length - 1] = last;
+        return next;
+      }),
+      onSources: (items) => onSources(items),
+      onDone: () => { onThinking(""); setBusy(false); },
     });
-    const reader = resp.body!.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-    let botText = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split("\n");
-      buf = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const evt = JSON.parse(line.slice(6));
-        if (evt.type === "token") {
-          botText += evt.text;
-          setMessages([...next, { role: "assistant", content: botText }]);
-        } else if (evt.type === "sources") {
-          setSources(evt.items.map((i: any) => i.title));
-        }
-      }
-    }
   }
 
   return (
-    <main className="max-w-3xl mx-auto p-4 h-screen flex flex-col">
-      <h1 className="text-xl font-bold mb-4">电商售后智能客服</h1>
-      <div className="flex-1 overflow-y-auto space-y-3">
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {messages.length === 0 && (
+          <div className="text-center text-gray-400 mt-20">
+            <p className="text-3xl mb-2">💬</p>
+            <p>你好，我是智能客服小商，有什么可以帮您？</p>
+            <div className="flex gap-2 justify-center mt-4">
+              {SUGGESTIONS.map((s) => (
+                <button key={s} className="border rounded-full px-3 py-1 text-sm hover:bg-gray-100" onClick={() => send(s)}>{s}</button>
+              ))}
+            </div>
+          </div>
+        )}
         {messages.map((m, i) => (
           <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
-            <div className="inline-block bg-gray-100 rounded-lg px-3 py-2">{m.content}</div>
+            <div className={`inline-block rounded-lg px-3 py-2 text-left max-w-md ${m.role === "user" ? "bg-blue-500 text-white" : "bg-gray-100"}`}>
+              {m.content}
+              {m.cards?.map((c, j) => <MessageCard key={j} card={c} />)}
+            </div>
           </div>
         ))}
-        {sources.length > 0 && (
-          <div className="text-xs text-gray-500">📎 来源：{sources.join(" · ")}</div>
-        )}
       </div>
-      <div className="flex gap-2 mt-4">
-        <input className="flex-1 border rounded px-3 py-2" value={input}
+      <div className="p-3 border-t flex gap-2">
+        <input className="flex-1 border rounded px-3 py-2" value={input} placeholder="输入问题…"
                onChange={(e) => setInput(e.target.value)}
                onKeyDown={(e) => e.key === "Enter" && send()} />
-        <button className="bg-blue-500 text-white px-4 rounded" onClick={send}>发送</button>
+        <button className="bg-blue-500 text-white px-4 rounded hover:bg-blue-600" onClick={() => send()}>发送</button>
       </div>
+      {messages.length > 0 && !busy && (
+        <div className="px-4 pb-2 text-xs text-gray-400">
+          {rating === null
+            ? <>本次解答满意吗？{[1,2,3,4,5].map((n) => <button key={n} className="mx-0.5 hover:scale-110" onClick={() => setRating(n)}>{n}⭐</button>)}</>
+            : "感谢评价！"}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 6: 写 ContextPanel.tsx（右栏知识命中面板）**
+
+```tsx
+export default function ContextPanel({ sources, thinking }: {
+  sources: { title: string; category: string }[];
+  thinking: string;
+}) {
+  return (
+    <aside className="w-60 border-l bg-gray-50 p-4 overflow-y-auto">
+      <h3 className="text-sm font-bold mb-3">📚 RAG 知识命中</h3>
+      {sources.length === 0
+        ? <p className="text-xs text-gray-400">检索命中文档将显示在这里</p>
+        : <ul className="space-y-2">{sources.map((s, i) => (
+            <li key={i} className="text-xs bg-white border rounded p-2">
+              <div className="font-medium">{s.title}</div>
+              <div className="text-gray-400">{s.category}</div>
+            </li>
+          ))}</ul>}
+      {thinking && <p className="text-xs text-gray-400 mt-4">⏳ {thinking}</p>}
+    </aside>
+  );
+}
+```
+
+- [ ] **Step 7: 写 page.tsx（三栏工作台）**
+
+```tsx
+"use client";
+import { useState } from "react";
+import SessionList from "../components/SessionList";
+import ChatWindow from "../components/ChatWindow";
+import ContextPanel from "../components/ContextPanel";
+
+export default function Home() {
+  const [sessionId, setSessionId] = useState(`sess-${Date.now()}`);
+  const [sources, setSources] = useState<{ title: string; category: string }[]>([]);
+  const [thinking, setThinking] = useState("");
+
+  return (
+    <main className="h-screen flex">
+      <SessionList active={sessionId} onNew={() => setSessionId(`sess-${Date.now()}`)} onSelect={() => {}} />
+      <div className="flex-1 flex flex-col">
+        <header className="h-12 border-b flex items-center px-4">
+          <h1 className="font-bold">电商售后智能客服工作台</h1>
+          <span className="ml-3 text-xs text-gray-400">{sessionId}</span>
+        </header>
+        <ChatWindow sessionId={sessionId} onSources={setSources} onThinking={setThinking} />
+      </div>
+      <ContextPanel sources={sources} thinking={thinking} />
     </main>
   );
 }
 ```
 
-- [ ] **Step 3: 本地联调**
+- [ ] **Step 8: 本地联调**
 
 ```bash
 cd frontend && npm run dev
 ```
 
-浏览器打开 `http://localhost:3000`，提问并确认流式显示 + 来源卡片。（后端需先启动）
+浏览器打开 `http://localhost:3000`：确认三栏布局、流式显示、订单/物流/退款卡片、右栏知识命中面板、猜你想问、满意度评价。（后端需先启动；先问"订单20260811001到哪了"看卡片效果）
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add -A && git commit -m "feat: Next.js 聊天前端（SSE 流式）"
+git add -A && git commit -m "feat: Next.js 客服工作台前端（三栏+结构化卡片）"
 ```
 
 ---
