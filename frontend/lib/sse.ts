@@ -29,21 +29,31 @@ export async function streamChat(
   const reader = resp.body!.getReader();
   const decoder = new TextDecoder();
   let buf = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split("\n");
-    buf = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const evt = JSON.parse(line.slice(6));
-      if (evt.type === "thinking") handlers.onThinking(evt.status);
-      else if (evt.type === "token") handlers.onToken(evt.text);
-      else if (evt.type === "card") handlers.onCard({ kind: evt.kind, data: evt.data });
-      else if (evt.type === "sources") handlers.onSources(evt.items);
-      else if (evt.type === "error") handlers.onError(evt.message ?? "服务异常");
-      else if (evt.type === "done") handlers.onDone();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        let evt: any;
+        try {
+          evt = JSON.parse(line.slice(6));
+        } catch {
+          continue; // 畸形帧跳过
+        }
+        if (evt.type === "thinking") handlers.onThinking(evt.status);
+        else if (evt.type === "token") handlers.onToken(evt.text);
+        else if (evt.type === "card") handlers.onCard({ kind: evt.kind, data: evt.data });
+        else if (evt.type === "sources") handlers.onSources(evt.items);
+        else if (evt.type === "error") handlers.onError(evt.message ?? "服务异常");
+        else if (evt.type === "done") handlers.onDone();
+      }
     }
+  } catch (e) {
+    handlers.onError("连接中断，请稍后重试");
+    handlers.onDone();
   }
 }
