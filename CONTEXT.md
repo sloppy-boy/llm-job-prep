@@ -56,10 +56,24 @@
 - 强调**面试表达**：3 句话讲清项目 + 量化结果 + 能应对追问
 - 提醒：LangChain 权重下降，面试更认 LangGraph + 原生 SDK + 底层原理
 
-## 七、设计流程状态
+## 七、项目状态（2026-08-12 完成 ✅）
 
-当前处于 **头脑风暴阶段**（superpowers:brainstorming），task #2（逐个澄清问题）进行中。
-已完成：项目上下文探索。下一步：敲定项目选择 → 提出 2-3 种架构方案 → 呈现设计 → 写设计文档 → 用户审阅 → 转 writing-plans。
+**「电商售后智能客服」求职作品集已全部完成**：14 任务 + 评测修复轮 + 最终评审，42 commits，全在 main。
+
+**最终成绩**：
+- 后端 29 个 pytest 全绿；前端 Next.js 16 build 通过；Docker Compose 校验通过
+- 真实评测：25 题 / 5 类，准确率 76-92%（3 次采样，诚实口径）
+- 架构：FastAPI + LangGraph 多Agent（路由/工具/检索/写作/审核，打回≤2）+ RAG（bge-m3 + Qdrant 混合检索 + rerank）+ Next.js 三栏工作台 + Docker Compose
+
+**如何运行（用户需在新终端操作，因 docker CLI 不在旧 PATH）**：
+```bash
+cd K:\claude\llm-job-prep
+docker compose up --build -d
+# 访问 http://localhost:3000（前端工作台）| http://localhost:8000/api/v1/health（健康检查）
+```
+本地开发（不用 Docker）：`cd backend && .venv/Scripts/python -m uvicorn app.main:app --port 8000` + `cd frontend && npm run dev`（Qdrant 用本地模式，QDRANT_URL 已置空）。
+
+**面试叙事弹药**（详见 README）：3 句话讲清项目、准确率 56%→76%→92% 的修复轨迹、多Agent+工具调用+RAG 三大能力、商用化工程点（评测/成本/缓存/降级/容器化）、嵌入式毕设作第二故事。
 
 ## 八、如何继续（下次开机）
 
