@@ -36,6 +36,15 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
         return next;
       }),
       onSources: (items) => onSources(items),
+      onError: (msg) => {
+        setMessages((ms) => {
+          const next = [...ms];
+          const last = { ...next[next.length - 1], content: msg };
+          next[next.length - 1] = last;
+          return next;
+        });
+        onThinking(""); setBusy(false);
+      },
       onDone: () => { onThinking(""); setBusy(false); },
     });
   }

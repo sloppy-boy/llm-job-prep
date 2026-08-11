@@ -10,13 +10,22 @@ export async function streamChat(
     onCard: (c: SSECard) => void;
     onSources: (items: { title: string; category: string }[]) => void;
     onDone: () => void;
+    onError: (msg: string) => void;
   }
 ) {
-  const resp = await fetch("http://localhost:8000/api/v1/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-API-Key": "dev-local-key" },
-    body: JSON.stringify({ session_id: sessionId, message }),
-  });
+  let resp: Response;
+  try {
+    resp = await fetch("/api/v1/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": "dev-local-key" },
+      body: JSON.stringify({ session_id: sessionId, message }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  } catch (e) {
+    handlers.onError("服务暂时不可用，请稍后重试");
+    handlers.onDone();
+    return;
+  }
   const reader = resp.body!.getReader();
   const decoder = new TextDecoder();
   let buf = "";
@@ -33,6 +42,7 @@ export async function streamChat(
       else if (evt.type === "token") handlers.onToken(evt.text);
       else if (evt.type === "card") handlers.onCard({ kind: evt.kind, data: evt.data });
       else if (evt.type === "sources") handlers.onSources(evt.items);
+      else if (evt.type === "error") handlers.onError(evt.message ?? "服务异常");
       else if (evt.type === "done") handlers.onDone();
     }
   }
