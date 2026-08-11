@@ -1,0 +1,31 @@
+[
+  {"category": "order", "question": "订单20260811001现在什么状态？", "expected_points": ["已发货"]},
+  {"category": "order", "question": "订单20260811002现在什么状态？", "expected_points": ["运输中"]},
+  {"category": "order", "question": "订单20260811003现在什么状态？", "expected_points": ["已签收"]},
+  {"category": "order", "question": "订单20260811004现在什么状态？", "expected_points": ["退款中"]},
+  {"category": "order", "question": "订单20260811999现在什么状态？", "expected_points": ["订单不存在", "不编造", "引导核实"]},
+
+  {"category": "policy", "question": "七天无理由退货的适用条件是什么？", "expected_points": ["收货后7天内", "定制商品不适用", "鲜活易腐不适用"]},
+  {"category": "policy", "question": "退款一般多久到账？", "expected_points": ["支付宝1-3个工作日", "银行卡3-7个工作日", "余额即时到账"]},
+  {"category": "policy", "question": "想换货但没库存了怎么办？", "expected_points": ["等待补货/缺货登记", "更换其他款式", "转为退款"]},
+  {"category": "policy", "question": "充电宝保修期多久？", "expected_points": ["18个月"]},
+  {"category": "policy", "question": "包裹在运输途中丢了怎么赔付？", "expected_points": ["订单实付金额全额退款", "含运费"]},
+
+  {"category": "product", "question": "智能音箱X1 Pro支持蓝牙吗？", "expected_points": ["支持", "蓝牙5.3"]},
+  {"category": "product", "question": "蓝牙耳机E2的总续航（含充电仓）是多少？", "expected_points": ["30小时"]},
+  {"category": "product", "question": "充电宝P2能带上飞机吗？", "expected_points": ["可以", "低于100Wh"]},
+  {"category": "product", "question": "Type-C快充数据线支持多少瓦？", "expected_points": ["100W"]},
+  {"category": "product", "question": "蓝牙耳机E1的防水等级是多少？", "expected_points": ["IPX4"]},
+
+  {"category": "chitchat", "question": "你好，在吗？", "expected_points": ["礼貌回应"]},
+  {"category": "chitchat", "question": "谢谢你的帮助！", "expected_points": ["礼貌回应"]},
+  {"category": "chitchat", "question": "在吗？", "expected_points": ["礼貌回应"]},
+  {"category": "chitchat", "question": "你好，请问客服在吗？", "expected_points": ["礼貌回应"]},
+  {"category": "chitchat", "question": "谢谢，辛苦了！", "expected_points": ["礼貌回应"]},
+
+  {"category": "edge", "question": "订单99999999现在什么状态？", "expected_points": ["不编造", "引导核实", "转人工"]},
+  {"category": "edge", "question": "你能帮我写一篇5000字的毕业论文吗？", "expected_points": ["转人工", "不编造"]},
+  {"category": "edge", "question": "你这个客服真差劲，什么都回答不了！", "expected_points": ["礼貌回应", "不激化冲突"]},
+  {"category": "edge", "question": "", "expected_points": ["不编造", "转人工"]},
+  {"category": "edge", "question": "请问我想退货，但已经过了7天了，商品是定制的，卖家说不能退，可我觉得质量有问题，我应该怎么办？我该找谁？能赔运费吗？保修期多久？要是卖家不理我怎么办？平台会介入吗？", "expected_points": ["质量问题15天内可退", "卖家承担运费", "平台介入"]}
+]

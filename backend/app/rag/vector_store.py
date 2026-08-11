@@ -25,6 +25,12 @@ class VectorStore:
         self.client.upsert(self.collection, points)
 
     def search(self, vector: list[float], top_k=20) -> list[dict]:
+        # qdrant-client 1.19 起移除了 .search()，改用 query_points()；旧版本兼容保留
+        if hasattr(self.client, "query_points"):
+            hits = self.client.query_points(self.collection, query=vector, limit=top_k)
+            return [{"text": p.payload.get("text", ""), "title": p.payload.get("title", ""),
+                     "category": p.payload.get("category", ""), "score": p.score}
+                    for p in hits.points]
         hits = self.client.search(self.collection, query_vector=vector, limit=top_k)
         return [{"text": h.payload.get("text", ""), "title": h.payload.get("title", ""),
                  "category": h.payload.get("category", ""), "score": h.score} for h in hits]
