@@ -28,4 +28,5 @@ def run_agent(question: str, session_id: str, history=None) -> dict:
     return graph.invoke({
         "question": question, "session_id": session_id,
         "history": history or [], "iteration": 0, "review_status": "",
+        "tool_results": [],
     })
