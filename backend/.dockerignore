@@ -1,0 +1,11 @@
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+qdrant_local
+mock_orders.db
+.env
+.git
+tests
+Dockerfile
+.dockerignore

@@ -1,0 +1,2 @@
+# 强制 shell 脚本保持 LF 行尾，避免 Windows checkout 成 CRLF 导致 Docker 容器 shebang 失效
+*.sh text eol=lf
