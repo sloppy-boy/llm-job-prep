@@ -21,9 +21,8 @@ def _base_state(**kw):
     return s
 
 def test_tool_node_order_domain(monkeypatch):
-    def fake_chat(msgs, **kw):
-        return '{"name": "query_order", "args": {"order_id": "20260811001"}}'
-    monkeypatch.setattr(nodes, "chat", fake_chat)
+    monkeypatch.setattr(nodes, "chat_with_tools",
+                        lambda msgs, tools: ("", [{"name": "query_order", "arguments": {"order_id": "20260811001"}}]))
     out = nodes.tool_node(_base_state(domain="order", question="订单20260811001到哪了"))
     assert out["tool_results"][0]["status"] == "已发货"
 

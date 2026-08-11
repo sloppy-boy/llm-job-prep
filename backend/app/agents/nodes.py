@@ -1,6 +1,6 @@
 import json
 from app.rag.retrieve import hybrid_search, rerank
-from app.llm import chat
+from app.llm import chat, chat_with_tools
 from app.agents.state import AgentState
 from app.tools import order_tools
 
@@ -32,12 +32,14 @@ def tool_node(state: AgentState) -> dict:
     if state["domain"] != "order":
         return {"tool_results": []}
     try:
-        resp = chat([
-            {"role": "system", "content": "从用户话术中提取订单号，选择合适工具。只输出JSON：{\"name\":工具名,\"args\":{}}"},
+        _, tool_calls = chat_with_tools([
+            {"role": "system", "content": "从用户话术中提取订单号，选择合适工具。"},
             {"role": "user", "content": state["question"]},
-        ], tools=order_tools.TOOLS, stream=False)
-        call = json.loads(resp)
-        result = json.loads(order_tools.dispatch(call["name"], call.get("args", {})))
+        ], order_tools.TOOLS)
+        if not tool_calls:
+            return {"tool_results": [{"error": "未能识别到工具调用"}]}
+        call = tool_calls[0]
+        result = json.loads(order_tools.dispatch(call["name"], call.get("arguments", {})))
     except Exception:
         result = {"error": "无法解析工具调用或执行失败"}
     return {"tool_results": [result]}
