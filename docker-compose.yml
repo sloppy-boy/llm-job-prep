@@ -4,13 +4,19 @@ services:
     ports: ["6333:6333"]
   postgres:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: csbot
       POSTGRES_PASSWORD: csbot
       POSTGRES_DB: csbot
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     ports: ["5432:5432"]
   redis:
     image: redis:7
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
     ports: ["6379:6379"]
   backend:
     build: ./backend
@@ -28,3 +34,7 @@ services:
         API_BACKEND_URL: http://backend:8000
     depends_on: [backend]
     ports: ["3000:3000"]
+
+volumes:
+  pgdata:
+  redisdata:

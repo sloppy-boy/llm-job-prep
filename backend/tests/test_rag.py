@@ -1,9 +1,9 @@
 from app.rag import retrieve
 
-def test_bm25_sorts_and_filters():
+def test_keyword_boost_sorts_and_filters():
     docs = [{"text": "七天无理由退货适用", "title": "t1", "score": 0.8},
             {"text": "退款到账时间", "title": "t2", "score": 0.5}]
-    out = retrieve._bm25("退货", docs)
+    out = retrieve._keyword_boost("退货", docs)
     assert isinstance(out, list) and len(out) == 2
     assert out[0]["score"] > out[1]["score"]
 

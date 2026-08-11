@@ -11,8 +11,8 @@ def get_store() -> VectorStore:
         _store = VectorStore()
     return _store
 
-def _bm25(query: str, docs: list[dict]) -> list[dict]:
-    """简化 BM25 启发式融合：向量分 + 关键词命中分。"""
+def _keyword_boost(query: str, docs: list[dict]) -> list[dict]:
+    """关键词加分（简化启发式，非标准 BM25）：向量分 + 查询字符在文档中的命中加分。"""
     scored = []
     for d in docs:
         hits = sum(1 for t in query if t in d["text"])
@@ -21,7 +21,7 @@ def _bm25(query: str, docs: list[dict]) -> list[dict]:
 
 def hybrid_search(query: str, top_k=20) -> list[dict]:
     vec = embed_texts([query])[0]
-    return _bm25(query, get_store().search(vec, top_k=top_k))
+    return _keyword_boost(query, get_store().search(vec, top_k=top_k))
 
 def rerank(query: str, docs: list[dict]) -> list[dict]:
     if not docs:
