@@ -44,6 +44,8 @@ cp .env.example backend/.env
 
 本地开发（不起 docker）时，后端默认降级为本地文件模式（`QDRANT_URL` 留空走 `qdrant_local/`，`DATABASE_URL` 默认 SQLite）。
 
+`NEXT_PUBLIC_API_KEY` 是服务间认证 Key（dev 默认 `dev-local-key`，生产请通过环境变量配置）。
+
 ## 评测跑法
 
 ```bash

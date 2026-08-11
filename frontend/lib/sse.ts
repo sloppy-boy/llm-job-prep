@@ -1,6 +1,9 @@
 export type SSECard = { kind: "order" | "logistics" | "refund"; data: any };
 export type ChatMessage = { role: "user" | "assistant"; content: string; cards?: SSECard[] };
 
+// 服务间认证 Key：dev 默认 dev-local-key，生产通过 NEXT_PUBLIC_API_KEY 环境变量配置（构建期内联）
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "dev-local-key";
+
 export async function streamChat(
   sessionId: string,
   message: string,
@@ -17,7 +20,7 @@ export async function streamChat(
   try {
     resp = await fetch("/api/v1/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": "dev-local-key" },
+      headers: { "Content-Type": "application/json", "X-API-Key": API_KEY },
       body: JSON.stringify({ session_id: sessionId, message }),
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);

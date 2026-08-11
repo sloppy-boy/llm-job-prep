@@ -53,7 +53,8 @@ def writer_node(state: AgentState) -> dict:
         tool_text = "\n工具查询结果：" + str(state["tool_results"])
     if state["domain"] == "chitchat":
         user = f"用户寒暄：{state['question']}\n请礼貌简短回应，并引导用户提出售后问题。"
-    elif state["domain"] == "order" and state.get("tool_results") and "error" not in str(state["tool_results"][0]):
+    elif state["domain"] == "order" and state.get("tool_results") and \
+            isinstance(state["tool_results"][0], dict) and "error" not in state["tool_results"][0]:
         # order 域：工具结果是权威来源，忽略无关检索，避免被 FAQ 误导
         user = (f"系统已查询到订单信息。请**只基于以下工具结果**如实回答用户，"
                 f"不要编造，不要被其他检索内容干扰。{tool_text}\n问题：{state['question']}")

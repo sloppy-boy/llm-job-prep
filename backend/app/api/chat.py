@@ -31,8 +31,9 @@ async def chat(req: ChatRequest):
             result = _async_run(req.message, req.session_id, req.history)
             for tool in result.get("tool_results", []):
                 yield _sse({"type": "card", "kind": _kind_of(tool), "data": tool})
-            for token in result.get("draft_answer", "").split(" "):
-                yield _sse({"type": "token", "text": token + " "})
+            # 逐字发送：中文整句无空格，若按空格切分会一次送达；逐字可让前端平滑呈现打字效果
+            for ch in result.get("draft_answer", ""):
+                yield _sse({"type": "token", "text": ch})
             yield _sse({"type": "sources", "items": result.get("retrieved_chunks", [])})
         except Exception:
             # 整条流水线失败时绝不静默，向客户端发 error 事件兜底
