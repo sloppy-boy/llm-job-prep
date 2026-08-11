@@ -28,6 +28,9 @@
    - 语料：**自建"示例电商"售后政策 + 商品 FAQ**（建模自真实平台公开政策，20-40篇 markdown，故意埋大表格/嵌套条款当"硬骨头"）
    - 架构：商用级（分层 + 请求ID/日志/成本指标 + 重试/模型降级 + 会话持久化 + 语义缓存 + 向量库抽象 + 评测管线 + Docker Compose + API Key/限流）
 4. 前端路线：**Next.js 前端 + Python AI 后端**（用户选择，前端锁死最小聊天界面）
+5. **分支策略：GitHub Flow（feature 分支 + PR）**——真实团队常用，简历加分。Task 1（脚手架）留在 main；Task 2 起每个任务走 `feature/task-N` → 实现 → 评审 → 合并 main。本地先走分支+合并，用户配好 GitHub 远端后可推真实 PR
+6. **执行方式：子代理驱动**（superpowers:subagent-driven-development），每任务独立实现子代理 + 任务评审
+7. 密钥：DeepSeek Key + SiliconFlow Key 用户稍后提供；Docker Desktop 需安装（Task 4 需要 Qdrant）
 
 ## 四、待定问题 ❓（下一步决策点）
 
