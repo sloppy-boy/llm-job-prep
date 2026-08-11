@@ -11,7 +11,7 @@ def test_chat_returns_text(monkeypatch):
     assert llm.chat([{"role": "user", "content": "hi"}]) == "你好"
 
 def test_chat_retries_then_fallback(monkeypatch):
-    """主模型 3 次失败后走降级模型。"""
+    """_retry 内部主模型 3 次失败后走降级模型。mock _chat_once，仍应 4 次调用。"""
     calls = []
     def flaky_once(messages, tools, model, stream):
         calls.append(model)
@@ -22,3 +22,35 @@ def test_chat_retries_then_fallback(monkeypatch):
     monkeypatch.setattr(llm.settings, "model_fallback", "deepseek-reasoner")
     assert llm.chat([{"role": "user", "content": "hi"}]) == "fallback-ok"
     assert len(calls) == 4  # 3 次主 + 1 次降级
+
+def test_chat_with_tools(monkeypatch):
+    """chat_with_tools 解析结构化 tool_calls，返回 (content, tool_calls)。"""
+    import json
+    class FakeFunction:
+        name = "query_order"
+        arguments = json.dumps({"order_id": "20260811001"})
+    class FakeToolCall:
+        function = FakeFunction()
+    class FakeMsg:
+        content = ""
+        tool_calls = [FakeToolCall()]
+    class FakeResp:
+        usage = None
+        choices = [type("C", (), {"message": FakeMsg()})]
+    monkeypatch.setattr(llm, "_retry", lambda *a, **k: FakeResp())
+    content, tool_calls = llm.chat_with_tools([], [])
+    assert content == ""
+    assert tool_calls == [{"name": "query_order", "arguments": {"order_id": "20260811001"}}]
+
+def test_chat_with_tools_no_tool_calls(monkeypatch):
+    """chat_with_tools 无工具调用时返回 (content, 空列表)。"""
+    class FakeMsg:
+        content = "普通回复"
+        tool_calls = None
+    class FakeResp:
+        usage = None
+        choices = [type("C", (), {"message": FakeMsg()})]
+    monkeypatch.setattr(llm, "_retry", lambda *a, **k: FakeResp())
+    content, tool_calls = llm.chat_with_tools([], [])
+    assert content == "普通回复"
+    assert tool_calls == []

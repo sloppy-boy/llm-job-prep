@@ -4,12 +4,12 @@ from app.agents.graph import run_agent
 from app.llm import chat
 
 def judge(points: list[str], answer: str) -> bool:
-    """LLM 判分：回答是否覆盖全部要点。覆盖输出 PASS，否则输出 FAIL。"""
+    """LLM 判分：回答是否覆盖全部要点。注意用词不同但要点覆盖也算。"""
     check = chat([
-        {"role": "system", "content": "你是评测员。判断回答是否覆盖全部要点。全覆盖输出PASS，否则输出FAIL。"},
+        {"role": "system", "content": "你是严格的评测员。判断回答是否覆盖了列出的全部要点。注意：要点都覆盖了即使用词不同也算覆盖。全部覆盖输出PASS，有任何遗漏输出FAIL。只输出PASS或FAIL。"},
         {"role": "user", "content": f"要点：{points}\n回答：{answer}"},
     ], stream=False)
-    return "PASS" in check
+    return check.strip().upper().startswith("PASS")
 
 def main():
     q_path = Path(__file__).parent / "questions.json"

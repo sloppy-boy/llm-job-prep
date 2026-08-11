@@ -1,6 +1,6 @@
 import json
 from app.rag.retrieve import hybrid_search, rerank
-from app.llm import chat
+from app.llm import chat, chat_with_tools
 from app.agents.state import AgentState
 from app.tools import order_tools
 
@@ -32,12 +32,14 @@ def tool_node(state: AgentState) -> dict:
     if state["domain"] != "order":
         return {"tool_results": []}
     try:
-        resp = chat([
-            {"role": "system", "content": "从用户话术中提取订单号，选择合适工具。只输出JSON：{\"name\":工具名,\"args\":{}}"},
+        _, tool_calls = chat_with_tools([
+            {"role": "system", "content": "从用户话术中提取订单号，选择合适工具。"},
             {"role": "user", "content": state["question"]},
-        ], tools=order_tools.TOOLS, stream=False)
-        call = json.loads(resp)
-        result = json.loads(order_tools.dispatch(call["name"], call.get("args", {})))
+        ], order_tools.TOOLS)
+        if not tool_calls:
+            return {"tool_results": [{"error": "未能识别到工具调用"}]}
+        call = tool_calls[0]
+        result = json.loads(order_tools.dispatch(call["name"], call.get("arguments", {})))
     except Exception:
         result = {"error": "无法解析工具调用或执行失败"}
     return {"tool_results": [result]}
@@ -51,6 +53,10 @@ def writer_node(state: AgentState) -> dict:
         tool_text = "\n工具查询结果：" + str(state["tool_results"])
     if state["domain"] == "chitchat":
         user = f"用户寒暄：{state['question']}\n请礼貌简短回应，并引导用户提出售后问题。"
+    elif state["domain"] == "order" and state.get("tool_results") and "error" not in str(state["tool_results"][0]):
+        # order 域：工具结果是权威来源，忽略无关检索，避免被 FAQ 误导
+        user = (f"系统已查询到订单信息。请**只基于以下工具结果**如实回答用户，"
+                f"不要编造，不要被其他检索内容干扰。{tool_text}\n问题：{state['question']}")
     elif not state.get("retrieved_chunks"):
         user = f"知识库没有检索到相关内容。请如实告诉用户'暂时没有找到相关说明，可转人工处理'，不要编造。{tool_text}\n问题：{state['question']}"
     else:
