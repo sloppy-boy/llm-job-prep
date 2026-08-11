@@ -20,15 +20,23 @@ def _key(question: str) -> str:
 
 def cache_get(question: str) -> str | None:
     k = _key(question)
+    global _available
     if _available:
-        return _r.get(k)
+        try:
+            return _r.get(k)
+        except Exception:
+            _available = False  # 运行时 Redis 故障 → 降级内存
     with _lock:
         return _mem.get(k)
 
 def cache_set(question: str, answer: str) -> None:
     k = _key(question)
+    global _available
     if _available:
-        _r.set(k, answer, ex=TTL)
-    else:
-        with _lock:
-            _mem[k] = answer
+        try:
+            _r.set(k, answer, ex=TTL)
+            return
+        except Exception:
+            _available = False
+    with _lock:
+        _mem[k] = answer
