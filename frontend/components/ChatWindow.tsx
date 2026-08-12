@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import MessageCard from "./MessageCard";
 import { streamChat, type ChatMessage } from "@/lib/sse";
 
@@ -14,6 +14,13 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [rating, setRating] = useState<number | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 新消息/流式 token 到达时，滚动容器自动贴底，避免内容多了要手动下滑才能看到回复
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
 
   async function send(text?: string) {
     const userText = (text ?? input).trim();
@@ -51,7 +58,7 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
         {messages.length === 0 && (
           <div className="text-center text-gray-400 mt-20">
             <p className="text-3xl mb-2">💬</p>
