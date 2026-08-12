@@ -16,3 +16,17 @@ export async function fetchHistory(sessionId: string): Promise<HistoryMessage[]>
   if (!r.ok) return [];
   return (await r.json()).messages ?? [];
 }
+
+// 评分反馈闭环：POST /api/v1/feedback，成功返回 true；网络/非 2xx 均视为失败（可重试）
+export async function submitFeedback(sessionId: string, rating: number): Promise<boolean> {
+  try {
+    const r = await fetch("/api/v1/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": API_KEY },
+      body: JSON.stringify({ session_id: sessionId, rating }),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
