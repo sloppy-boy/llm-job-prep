@@ -137,7 +137,16 @@ def test_chat_streams_tokens_incrementally(monkeypatch):
         "domain": "policy", "tool_results": [],
         "retrieved_chunks": [{"title": "t", "text": "x"}]})
     monkeypatch.setattr(chat_mod, "build_writer_messages", lambda s: [{"role": "user", "content": "q"}])
-    monkeypatch.setattr(chat_mod, "llm_chat_stream", _make_stream("流式"))
+
+    def fake_stream(*a, **k):
+        for ch in "流式":
+            yield type("R", (), {"choices": [_FakeMsg(ch)]})()
+        yield type("R", (), {"choices": []})()  # usage 末块：choices 为空
+
+    monkeypatch.setattr(chat_mod, "llm_chat_stream", fake_stream)
     r = _post("hi")
     assert r.text.count('"type": "token"') >= 2
     assert "流" in r.text and "式" in r.text
+    # include_usage 的末块 choices 为空：必须被跳过而不是触发 IndexError
+    assert "error" not in r.text, "空 choices 末块被误读不应产出 error 事件"
+    assert "sources" in r.text, "空 choices 块被跳过后才应继续输出 sources"

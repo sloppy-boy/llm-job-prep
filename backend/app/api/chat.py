@@ -71,6 +71,8 @@ async def chat(req: ChatRequest):
                 stream_resp = llm_chat_stream(msgs)
                 parts = []
                 for chunk in stream_resp:
+                    if not chunk.choices:
+                        continue  # include_usage 的末块 choices 为空，跳过
                     piece = (chunk.choices[0].delta.content or "")
                     if piece:
                         parts.append(piece)
