@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import MessageCard from "./MessageCard";
 import { streamChat, type ChatMessage } from "@/lib/sse";
+import { fetchHistory } from "@/lib/api";
 
 const SUGGESTIONS = ["怎么申请退货？", "订单到哪了？", "退款多久到账？"];
 
@@ -21,6 +22,23 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
+
+  // 切换会话时重置聊天区并加载该会话历史；
+  // 新建会话的 sessionId 是全新的 → fetchHistory 返回空 → messages 清空回到欢迎态。
+  // cancelled 标志防止快速切换时旧会话的慢响应覆盖新会话历史。
+  useEffect(() => {
+    if (!sessionId) return;
+    let cancelled = false;
+    setMessages([]);
+    setBusy(false);
+    setRating(null);
+    setInput("");
+    fetchHistory(sessionId).then((h) => {
+      if (cancelled) return;
+      setMessages(h.map((m) => ({ role: m.role, content: m.content })));
+    });
+    return () => { cancelled = true; };
+  }, [sessionId]);
 
   async function send(text?: string) {
     const userText = (text ?? input).trim();
