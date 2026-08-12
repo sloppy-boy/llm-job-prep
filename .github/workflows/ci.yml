@@ -32,7 +32,8 @@ jobs:
         with: { python-version: "3.13" }
       - run: pip install -r backend/requirements.txt
       - run: python backend/scripts/build_kb.py
-        env: { SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }} }
+        env:
+          SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
       - run: python -m eval.judge
         working-directory: backend
         env:
