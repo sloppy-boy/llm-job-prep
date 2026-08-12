@@ -14,6 +14,30 @@ def test_chat_returns_sse(monkeypatch):
     assert r.status_code == 200
     assert "token" in r.text and "sources" in r.text and "card" in r.text and "done" in r.text
 
+def test_chat_error_tool_result_emits_no_card(monkeypatch):
+    """不存在订单时工具返回 {"error": ...}，不得被归类为 logistics 卡片（前端会 .map 崩溃）。"""
+    import app.api.chat as chat_mod
+    def fake_run(q, sid, hist):
+        return {"draft_answer": "未找到该订单，请核实订单号。",
+                "retrieved_chunks": [],
+                "tool_results": [{"error": "订单不存在"}]}
+    monkeypatch.setattr(chat_mod, "_async_run", fake_run)
+    c = TestClient(app)
+    r = c.post("/api/v1/chat", json={"session_id": "s1", "message": "查 20260000000"},
+               headers={"X-API-Key": "dev-local-key"})
+    assert r.status_code == 200
+    assert "card" not in r.text, "error 结果不应渲染卡片"
+
+
+def test_kind_of_returns_none_for_error_dict():
+    """_kind_of 对 error dict 返回 None（跳过卡片），不兜底成 logistics。"""
+    import app.api.chat as chat_mod
+    assert chat_mod._kind_of({"error": "订单不存在"}) is None
+    assert chat_mod._kind_of({"order_id": "1", "status": "已发货"}) == "order"
+    assert chat_mod._kind_of({"refund_id": "R1", "status": "已申请"}) == "refund"
+    assert chat_mod._kind_of([{"time": "08-10", "event": "已发货"}]) == "logistics"
+
+
 def test_chat_error_emits_error_event(monkeypatch):
     import app.api.chat as chat_mod
     def boom(q, sid, hist):

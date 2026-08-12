@@ -11,13 +11,21 @@ class ChatRequest(BaseModel):
     message: str
     history: list = []
 
-def _kind_of(tool_result: dict) -> str:
-    """根据工具结果字段推断卡片类型：refund / order / logistics。"""
+def _kind_of(tool_result: dict) -> str | None:
+    """推断卡片类型。error 结果或未知结构返回 None（跳过卡片，交给文本回答兜底）。
+
+    注意：不存在的订单经工具层返回 {"error": ...}，若归为 logistics 会让前端
+    (card.data || []).map 崩溃（data 是 dict 不是数组），故 error 一律不渲染卡片。
+    """
+    if not isinstance(tool_result, dict):
+        return "logistics"  # 物流轨迹是数组
+    if "error" in tool_result:
+        return None
     if "refund_id" in tool_result:
         return "refund"
     if "order_id" in tool_result and ("status" in tool_result or "items" in tool_result):
         return "order"
-    return "logistics"
+    return None
 
 def _sse(data: dict) -> str:
     """构造一条 SSE 事件帧：event: message + data: <json>，符合 text/event-stream 协议。"""
@@ -30,7 +38,9 @@ async def chat(req: ChatRequest):
         try:
             result = _async_run(req.message, req.session_id, req.history)
             for tool in result.get("tool_results", []):
-                yield _sse({"type": "card", "kind": _kind_of(tool), "data": tool})
+                kind = _kind_of(tool)
+                if kind:
+                    yield _sse({"type": "card", "kind": kind, "data": tool})
             # 逐字发送：中文整句无空格，若按空格切分会一次送达；逐字可让前端平滑呈现打字效果
             for ch in result.get("draft_answer", ""):
                 yield _sse({"type": "token", "text": ch})
