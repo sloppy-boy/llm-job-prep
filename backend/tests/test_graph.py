@@ -1,21 +1,4 @@
 from app.agents import nodes
-from app.agents.graph import should_retry
-
-def test_retry_boundary():
-    """审核打回循环边界：iteration<2 重写，达到上限结束，chitchat 结束。"""
-    assert should_retry({"domain": "policy", "review_status": "rejected", "iteration": 1}) == "rewrite"
-    assert should_retry({"domain": "policy", "review_status": "rejected", "iteration": 2}) == "end"
-    assert should_retry({"domain": "chitchat", "review_status": "passed", "iteration": 0}) == "end"
-
-def test_reviewer_increments_iteration(monkeypatch):
-    """打回路径 iteration 递增——锁住循环最多 2 次的防死循环机制。"""
-    monkeypatch.setattr(nodes, "chat", lambda msgs, **kw: "[驳回] 回答遗漏关键点")
-    out = nodes.reviewer_node({
-        "question": "q", "session_id": "s", "history": [], "domain": "policy",
-        "retrieved_chunks": [{"title": "t", "text": "x"}], "tool_results": [],
-        "draft_answer": "a", "iteration": 0, "review_status": "", "review_comment": "",
-    })
-    assert out["iteration"] == 1 and out["review_status"] == "rejected"
 
 def test_retriever_fallback_on_error(monkeypatch):
     """跨任务契约：RAG 抛异常时兜底为空列表，不中断流程。"""
@@ -26,6 +9,17 @@ def test_retriever_fallback_on_error(monkeypatch):
     out = nodes.retriever_node({"domain": "policy", "question": "怎么退货",
                                 "retrieved_chunks": [], "tool_results": [], "history": []})
     assert out["retrieved_chunks"] == []
+
+def test_run_agent_produces_answer(monkeypatch):
+    from app.agents import nodes
+    monkeypatch.setattr(nodes, "router_node", lambda s: {"domain": "policy"})
+    monkeypatch.setattr(nodes, "tool_node", lambda s: {"tool_results": []})
+    monkeypatch.setattr(nodes, "retriever_node", lambda s: {"retrieved_chunks": [{"title": "t", "text": "资料"}]})
+    monkeypatch.setattr(nodes, "writer_node", lambda s: {"draft_answer": "基于资料的回答"})
+    from app.agents.graph import run_agent
+    r = run_agent("七天无理由", "s1")
+    assert r["draft_answer"] == "基于资料的回答"
+    assert r["tool_results"] == [] and len(r["retrieved_chunks"]) == 1
 
 def test_gate_passes_when_tools_ok():
     from app.agents.nodes import gate_decision

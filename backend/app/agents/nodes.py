@@ -44,8 +44,7 @@ def tool_node(state: AgentState) -> dict:
         result = {"error": "无法解析工具调用或执行失败"}
     return {"tool_results": [result]}
 
-def writer_node(state: AgentState) -> dict:
-    """基于检索资料组织回答；无资料时必须如实告知并建议转人工，禁止编造。"""
+def build_writer_messages(state: AgentState) -> list[dict]:
     msgs = [{"role": "system", "content": SYSTEM}]
     msgs.extend(state.get("history", []))
     tool_text = ""
@@ -55,7 +54,6 @@ def writer_node(state: AgentState) -> dict:
         user = f"用户寒暄：{state['question']}\n请礼貌简短回应，并引导用户提出售后问题。"
     elif state["domain"] == "order" and state.get("tool_results") and \
             isinstance(state["tool_results"][0], dict) and "error" not in state["tool_results"][0]:
-        # order 域：工具结果是权威来源，忽略无关检索，避免被 FAQ 误导
         user = (f"系统已查询到订单信息。请**只基于以下工具结果**如实回答用户，"
                 f"不要编造，不要被其他检索内容干扰。{tool_text}\n问题：{state['question']}")
     elif not state.get("retrieved_chunks"):
@@ -64,26 +62,11 @@ def writer_node(state: AgentState) -> dict:
         ctx = "\n\n".join(f"[{d['title']}]\n{d['text']}" for d in state["retrieved_chunks"])
         user = f"检索资料：\n{ctx}{tool_text}\n\n问题：{state['question']}"
     msgs.append({"role": "user", "content": user})
-    if state.get("review_comment"):
-        msgs.append({"role": "user", "content": f"上次回答被审核打回，原因：{state['review_comment']}。请修正。"})
-    return {"draft_answer": chat(msgs, stream=False)}
+    return msgs
 
-def reviewer_node(state: AgentState) -> dict:
-    """审核：忠于资料？遗漏要点？编造？打回则迭代+1；审核模型失败时放行（不阻塞回答）。"""
-    iteration = state.get("iteration", 0) + 1
-    if state["domain"] == "chitchat":
-        return {"review_status": "passed", "review_comment": "", "iteration": iteration}
-    try:
-        check = chat([
-            {"role": "system", "content": "你是质量审核员。检查回答是否：1)忠于检索资料 2)未遗漏关键点 3)无编造。有问题输出[驳回]+原因，否则输出[通过]。"},
-            {"role": "user", "content": f"资料：\n{state['retrieved_chunks']}\n\n回答：{state['draft_answer']}"},
-        ], stream=False)
-    except Exception:
-        return {"review_status": "passed", "review_comment": "", "iteration": iteration}
-    passed = "[通过]" in check
-    return {"review_status": "passed" if passed else "rejected",
-            "review_comment": "" if passed else check,
-            "iteration": iteration}
+def writer_node(state: AgentState) -> dict:
+    msgs = build_writer_messages(state)
+    return {"draft_answer": chat(msgs, stream=False)}
 
 def gate_decision(state: AgentState) -> bool:
     """前置质量闸门：资料足够才流式生成，否则走诚实兜底话术。

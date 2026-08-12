@@ -15,8 +15,7 @@ def test_dispatch_unknown():
 
 def _base_state(**kw):
     s = {"question": "", "session_id": "s", "history": [], "domain": "policy",
-         "retrieved_chunks": [], "tool_results": [], "draft_answer": "",
-         "review_comment": "", "iteration": 0, "review_status": ""}
+         "retrieved_chunks": [], "tool_results": [], "draft_answer": ""}
     s.update(kw)
     return s
 
