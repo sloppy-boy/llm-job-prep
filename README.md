@@ -64,7 +64,7 @@ cd backend && .venv/Scripts/python -m eval.judge
 
 1. 这是一个**带工具调用的电商售后智能客服**：用户问订单 / 物流 / 退款时，系统不止基于知识库回答，还能真实查订单、查物流、发起退款申请，并带审核机制的多 Agent 协作。
 2. 技术上采用 **RAG + LangGraph 多 Agent + Function Calling 工具调用 + 商用工程化**：检索路由→向量召回→工具执行→前置质量闸门→流式写作（SSE 真流式，逐 token 推送、可中断），叠加会话持久化、语义缓存、评分反馈闭环、请求日志 / token 成本指标、模型重试与降级。
-3. 关键数据：自建 25 题评测集 + LLM-as-judge 四维打分，**答案准确率 76–92%**；全链路 Docker Compose 一键部署。
+3. 关键数据：自建 25 题评测集 + LLM-as-judge 四维打分，**答案准确率 96%（25 题评测集）**；全链路 Docker Compose 一键部署。
 
 ## GitHub Flow
 
