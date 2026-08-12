@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import MessageCard from "./MessageCard";
 import { streamChat, type ChatMessage } from "@/lib/sse";
-import { fetchHistory } from "@/lib/api";
+import { fetchHistory, submitFeedback } from "@/lib/api";
 
 const SUGGESTIONS = ["怎么申请退货？", "订单到哪了？", "退款多久到账？"];
 
@@ -15,7 +15,21 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [rating, setRating] = useState<number | null>(null);
+  const [ratingError, setRatingError] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 评分点击：先提交后端，成功才落本地 rating（此后禁用）；失败可重试并短暂提示
+  async function rate(n: number) {
+    if (rating !== null) return;
+    const ok = await submitFeedback(sessionId, n);
+    if (ok) {
+      setRating(n);
+      setRatingError(false);
+    } else {
+      setRatingError(true);
+      setTimeout(() => setRatingError(false), 3000);
+    }
+  }
 
   // 新消息/流式 token 到达时，滚动容器自动贴底，避免内容多了要手动下滑才能看到回复
   useEffect(() => {
@@ -32,6 +46,7 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
     setMessages([]);
     setBusy(false);
     setRating(null);
+    setRatingError(false);
     setInput("");
     fetchHistory(sessionId).then((h) => {
       if (cancelled) return;
@@ -43,7 +58,7 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
   async function send(text?: string) {
     const userText = (text ?? input).trim();
     if (!userText || busy) return;
-    setInput(""); setBusy(true); setRating(null);
+    setInput(""); setBusy(true); setRating(null); setRatingError(false);
     setMessages((ms) => [...ms, { role: "user", content: userText }, { role: "assistant", content: "", cards: [] }]);
     onThinking("正在识别问题类别...");
     await streamChat(sessionId, userText, {
@@ -106,8 +121,9 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
       {messages.length > 0 && !busy && (
         <div className="px-4 pb-2 text-xs text-gray-400">
           {rating === null
-            ? <>本次解答满意吗？{[1,2,3,4,5].map((n) => <button key={n} className="mx-0.5 hover:scale-110" onClick={() => setRating(n)}>{n}⭐</button>)}</>
+            ? <>本次解答满意吗？{[1,2,3,4,5].map((n) => <button key={n} className="mx-0.5 hover:scale-110" onClick={() => rate(n)}>{n}⭐</button>)}</>
             : "感谢评价！"}
+          {ratingError && <span className="ml-2 text-red-500">提交失败</span>}
         </div>
       )}
     </div>
