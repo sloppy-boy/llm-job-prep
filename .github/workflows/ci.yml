@@ -34,8 +34,10 @@ jobs:
       - run: python backend/scripts/build_kb.py
         env:
           SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
+          QDRANT_URL: ""
       - run: python -m eval.judge
         working-directory: backend
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
+          QDRANT_URL: ""
