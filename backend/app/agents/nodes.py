@@ -39,7 +39,8 @@ def tool_node(state: AgentState) -> dict:
         if not tool_calls:
             return {"tool_results": [{"error": "未能识别到工具调用"}]}
         call = tool_calls[0]
-        result = json.loads(order_tools.dispatch(call["name"], call.get("arguments", {})))
+        result = json.loads(order_tools.dispatch(
+            call["name"], call.get("arguments", {}), user_id=state.get("user_id", "user-001")))
     except Exception:
         result = {"error": "无法解析工具调用或执行失败"}
     return {"tool_results": [result]}

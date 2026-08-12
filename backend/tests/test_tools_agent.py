@@ -13,6 +13,25 @@ def test_dispatch_unknown():
     r = order_tools.dispatch("nope", {})
     assert "error" in r
 
+def test_dispatch_denied_for_other_user():
+    """越权：user-002 查 user-001 的订单 → 无权限"""
+    r = order_tools.dispatch("query_order", {"order_id": "20260811001"}, user_id="user-002")
+    assert "无权限" in r
+
+def test_dispatch_uses_injected_data_source():
+    """数据源抽象：注入自定义实现，dispatch 不依赖 mock_db"""
+    class FakeDS:
+        def get_order(self, order_id, user_id):
+            return {"order_id": order_id, "status": "来自注入源"}
+        def get_logistics(self, order_id):
+            return []
+        def create_refund(self, order_id, reason, user_id):
+            return {"refund_id": "R999"}
+        def escalate(self, session_id):
+            return {"status": "已转人工"}
+    r = order_tools.dispatch("query_order", {"order_id": "X1"}, user_id="u1", ds=FakeDS())
+    assert "注入源" in r
+
 def _base_state(**kw):
     s = {"question": "", "session_id": "s", "history": [], "domain": "policy",
          "retrieved_chunks": [], "tool_results": [], "draft_answer": ""}
