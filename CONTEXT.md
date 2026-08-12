@@ -72,9 +72,13 @@
 - **前端体验**：react-markdown 渲染、生成光标、停止生成（AbortController）、错误重试
 - **前端测试**：Vitest 16 用例（SSE/卡片/聊天窗口）
 - **CI**：`.github/workflows/ci.yml`（pytest+build 自动、评测手动触发，配好 Secrets 即用）
-- 测试：后端 **50 pytest** + 前端 **16 vitest** + build 全绿
+- 测试：后端 **54 pytest** + 前端 **16 vitest** + build 全绿
 
 **关键排障故事**（面试弹药）：① 评测 92%→40% 假崩 = Qdrant 本地索引被后端占用导致静默空检索（已加自检）；② 真流式 usage 末块 `choices` 空数组会 IndexError（已加防护+回归测试）；③ CI yaml 内联映射含 `${{ }}` 无效、eval 需 `QDRANT_URL=""` 本地模式。
+
+**优化轮（2026-08-13）**：
+- **#1 数据源抽象 + 订单归属校验（完成）**：`data_source.py` 定义 `OrderDataSource` 契约 + `MockOrderDataSource`，`dispatch` 依赖注入（接真实 ERP 只写新实现替换）；订单加 `user_id` 归属，`get_order`/`create_refund` 校验越权（A 查 B 的订单 → 无权限兜底）；`ChatRequest` 加 `user_id`（默认 user-001）链路透传。54 pytest 全绿 + 端到端实测越权拦截
+- 待优化清单见 `docs/optimization-todo.md`（下一步：限流 → 可观测 → 评测扩充）；架构详解见 `docs/architecture.md`
 
 **如何运行（用户需在新终端操作，因 docker CLI 不在旧 PATH）**：
 ```bash
