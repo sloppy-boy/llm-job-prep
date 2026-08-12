@@ -71,7 +71,14 @@ export async function streamChat(
             continue; // 畸形帧跳过
           }
           if (evt.type === "thinking") handlers.onThinking(evt.status);
-          else if (evt.type === "token") handlers.onToken(evt.text);
+          else if (evt.type === "token") {
+            handlers.onToken(evt.text);
+            // 关键：让出事件循环让浏览器逐字 paint。
+            // 本地/缓冲环境下一次 reader.read() 会返回多个 token 帧，若在同一 JS 任务内连续
+            // 处理完所有 token，浏览器只在任务结束后绘制一次 → 回答"一次性蹦出"。
+            // 每帧 await ~16ms（≈60fps），给浏览器在 token 之间绘制的时间点，形成打字效果。
+            await new Promise((r) => setTimeout(r, 16));
+          }
           else if (evt.type === "card") handlers.onCard({ kind: evt.kind, data: evt.data });
           else if (evt.type === "sources") handlers.onSources(evt.items);
           else if (evt.type === "error") handlers.onError(evt.message ?? "服务异常");
