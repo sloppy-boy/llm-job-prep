@@ -4,6 +4,11 @@ export type ChatMessage = { role: "user" | "assistant"; content: string; cards?:
 // 服务间认证 Key：dev 默认 dev-local-key，生产通过 NEXT_PUBLIC_API_KEY 环境变量配置（构建期内联）
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "dev-local-key";
 
+// 区分“用户主动取消”（AbortError）与真实异常：主动取消不展示错误提示
+function isAbortError(e: unknown): boolean {
+  return typeof e === "object" && e !== null && (e as { name?: string }).name === "AbortError";
+}
+
 export async function streamChat(
   sessionId: string,
   message: string,
@@ -15,48 +20,65 @@ export async function streamChat(
     onDone: () => void;
     onError: (msg: string) => void;
   }
-) {
-  let resp: Response;
-  try {
-    resp = await fetch("/api/v1/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": API_KEY },
-      body: JSON.stringify({ session_id: sessionId, message }),
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  } catch (e) {
-    handlers.onError("服务暂时不可用，请稍后重试");
-    handlers.onDone();
-    return;
-  }
-  const reader = resp.body!.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split("\n");
-      buf = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        let evt: any;
-        try {
-          evt = JSON.parse(line.slice(6));
-        } catch {
-          continue; // 畸形帧跳过
-        }
-        if (evt.type === "thinking") handlers.onThinking(evt.status);
-        else if (evt.type === "token") handlers.onToken(evt.text);
-        else if (evt.type === "card") handlers.onCard({ kind: evt.kind, data: evt.data });
-        else if (evt.type === "sources") handlers.onSources(evt.items);
-        else if (evt.type === "error") handlers.onError(evt.message ?? "服务异常");
-        else if (evt.type === "done") handlers.onDone();
+): Promise<{ cancel: () => void }> {
+  const controller = new AbortController();
+  const signal = controller.signal;
+
+  // 流式逻辑在后台异步执行；外层立刻返回 { cancel }，调用方无需等流结束即可拿到取消句柄
+  (async () => {
+    let resp: Response;
+    try {
+      resp = await fetch("/api/v1/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-API-Key": API_KEY },
+        body: JSON.stringify({ session_id: sessionId, message }),
+        signal,
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    } catch (e) {
+      if (isAbortError(e)) {
+        handlers.onDone(); // 主动取消：静默收尾，不展示错误
+        return;
       }
+      handlers.onError("服务暂时不可用，请稍后重试");
+      handlers.onDone();
+      return;
     }
-  } catch (e) {
-    handlers.onError("连接中断，请稍后重试");
-    handlers.onDone();
-  }
+    const reader = resp.body!.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          let evt: any;
+          try {
+            evt = JSON.parse(line.slice(6));
+          } catch {
+            continue; // 畸形帧跳过
+          }
+          if (evt.type === "thinking") handlers.onThinking(evt.status);
+          else if (evt.type === "token") handlers.onToken(evt.text);
+          else if (evt.type === "card") handlers.onCard({ kind: evt.kind, data: evt.data });
+          else if (evt.type === "sources") handlers.onSources(evt.items);
+          else if (evt.type === "error") handlers.onError(evt.message ?? "服务异常");
+          else if (evt.type === "done") handlers.onDone();
+        }
+      }
+    } catch (e) {
+      if (isAbortError(e)) {
+        handlers.onDone(); // 主动取消：静默收尾，不展示错误
+        return;
+      }
+      handlers.onError("连接中断，请稍后重试");
+      handlers.onDone();
+    }
+  })();
+
+  return { cancel: () => controller.abort() };
 }

@@ -19,6 +19,10 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
   const [rating, setRating] = useState<number | null>(null);
   const [ratingError, setRatingError] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // 当前进行中流的取消句柄；null 表示当前没有可取消的流
+  const cancelRef = useRef<(() => void) | null>(null);
+  // 当前会话 id 的实时镜像，供流式回调判断自身是否已过期（会话切换竞态防护）
+  const sessionRef = useRef(sessionId);
 
   // 评分点击：先提交后端，成功才落本地 rating（此后禁用）；失败可重试并短暂提示
   async function rate(n: number) {
@@ -42,11 +46,15 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
   // 切换会话时重置聊天区并加载该会话历史；
   // 新建会话的 sessionId 是全新的 → fetchHistory 返回空 → messages 清空回到欢迎态。
   // cancelled 标志防止快速切换时旧会话的慢响应覆盖新会话历史。
+  // 同时 abort 正在进行的旧流（取消句柄），并复位 busy，防止旧 token 污染新会话消息。
   useEffect(() => {
     if (!sessionId) return;
+    sessionRef.current = sessionId;
     let cancelled = false;
-    setMessages([]);
+    cancelRef.current?.();
+    cancelRef.current = null;
     setBusy(false);
+    setMessages([]);
     setRating(null);
     setRatingError(false);
     setInput("");
@@ -57,38 +65,54 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
     return () => { cancelled = true; };
   }, [sessionId]);
 
-  async function send(text?: string) {
+  function send(text?: string) {
     const userText = (text ?? input).trim();
     if (!userText || busy) return;
     setInput(""); setBusy(true); setRating(null); setRatingError(false);
     setMessages((ms) => [...ms, { role: "user", content: userText }, { role: "assistant", content: "", cards: [] }]);
     onThinking("正在识别问题类别...");
-    await streamChat(sessionId, userText, {
-      onThinking: (s) => onThinking(s),
-      onToken: (t) => setMessages((ms) => {
-        const next = [...ms];
-        const last = { ...next[next.length - 1], content: next[next.length - 1].content + t };
-        next[next.length - 1] = last;
-        return next;
-      }),
-      onCard: (c) => setMessages((ms) => {
-        const next = [...ms];
-        const last = { ...next[next.length - 1], cards: [...(next[next.length - 1].cards ?? []), c] };
-        next[next.length - 1] = last;
-        return next;
-      }),
-      onSources: (items) => onSources(items),
+    // streamChat 立刻返回 promise，并在微任务里 resolve { cancel }；不等流结束即可拿到取消句柄。
+    // 回调里的 sessionRef 守卫：会话切换后旧流的迟到回调被丢弃，杜绝旧 token 污染新会话。
+    const p = streamChat(sessionId, userText, {
+      onThinking: (s) => {
+        if (sessionRef.current !== sessionId) return;
+        onThinking(s);
+      },
+      onToken: (t) => {
+        if (sessionRef.current !== sessionId) return;
+        setMessages((ms) => {
+          const next = [...ms];
+          const last = { ...next[next.length - 1], content: next[next.length - 1].content + t };
+          next[next.length - 1] = last;
+          return next;
+        });
+      },
+      onCard: (c) => {
+        if (sessionRef.current !== sessionId) return;
+        setMessages((ms) => {
+          const next = [...ms];
+          const last = { ...next[next.length - 1], cards: [...(next[next.length - 1].cards ?? []), c] };
+          next[next.length - 1] = last;
+          return next;
+        });
+      },
+      onSources: (items) => {
+        if (sessionRef.current !== sessionId) return;
+        onSources(items);
+      },
       onError: (msg) => {
+        if (sessionRef.current !== sessionId) return;
         setMessages((ms) => {
           const next = [...ms];
           const last = { ...next[next.length - 1], content: msg };
           next[next.length - 1] = last;
           return next;
         });
-        onThinking(""); setBusy(false);
+        onThinking(""); setBusy(false); cancelRef.current = null;
       },
-      onDone: () => { onThinking(""); setBusy(false); },
+      onDone: () => { onThinking(""); setBusy(false); cancelRef.current = null; },
     });
+    p.then(({ cancel }) => { cancelRef.current = cancel; });
   }
 
   return (
@@ -127,7 +151,14 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
         <input className="flex-1 border rounded px-3 py-2" value={input} placeholder="输入问题…"
                onChange={(e) => setInput(e.target.value)}
                onKeyDown={(e) => e.key === "Enter" && send()} />
-        <button className="bg-blue-500 text-white px-4 rounded hover:bg-blue-600" onClick={() => send()}>发送</button>
+        {busy && (
+          <button className="bg-gray-500 text-white px-4 rounded hover:bg-gray-600"
+                  onClick={() => { cancelRef.current?.(); cancelRef.current = null; setBusy(false); }}>
+            ⏹ 停止
+          </button>
+        )}
+        <button className="bg-blue-500 text-white px-4 rounded hover:bg-blue-600 disabled:opacity-50"
+                onClick={() => send()} disabled={busy}>发送</button>
       </div>
       {messages.length > 0 && !busy && (
         <div className="px-4 pb-2 text-xs text-gray-400">
