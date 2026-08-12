@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import MessageCard from "./MessageCard";
 import { streamChat, type ChatMessage } from "@/lib/sse";
 import { fetchHistory, submitFeedback } from "@/lib/api";
@@ -106,7 +108,16 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
         {messages.map((m, i) => (
           <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
             <div className={`inline-block rounded-lg px-3 py-2 text-left max-w-md ${m.role === "user" ? "bg-blue-500 text-white" : "bg-gray-100"}`}>
-              {m.content}
+              {m.role === "assistant" ? (
+                <div className="[&_table]:w-full [&_table]:border-collapse [&_table]:border [&_table]:border-gray-300 [&_table_th]:border [&_table_th]:border-gray-300 [&_table_th]:px-2 [&_table_th]:py-1 [&_table_td]:border [&_table_td]:border-gray-300 [&_table_td]:px-2 [&_table_td]:py-1 [&_pre]:bg-gray-800 [&_pre]:text-gray-100 [&_pre]:p-3 [&_pre]:rounded [&_pre]:overflow-x-auto [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:bg-gray-200 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                  {busy && i === messages.length - 1 && (
+                    <span className="inline-block animate-pulse">▍</span>
+                  )}
+                </div>
+              ) : (
+                m.content
+              )}
               {m.cards?.map((c, j) => <MessageCard key={j} card={c} />)}
             </div>
           </div>
