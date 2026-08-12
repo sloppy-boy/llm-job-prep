@@ -54,3 +54,16 @@ def test_chat_with_tools_no_tool_calls(monkeypatch):
     content, tool_calls = llm.chat_with_tools([], [])
     assert content == "普通回复"
     assert tool_calls == []
+
+def test_chat_stream_yields_tokens(monkeypatch):
+    """stream=True 返回可迭代响应，逐 token 产出 delta.content。"""
+    import app.llm as llm_mod
+    class FakeMsg:  # 模拟一个流式响应块
+        def __init__(self, t): self.delta = type("D", (), {"content": t})()
+    def fake_chunks(*a, **k):
+        yield type("R", (), {"choices": [FakeMsg("你")]})()
+        yield type("R", (), {"choices": [FakeMsg("好")]})()
+    monkeypatch.setattr(llm_mod, "_chat_once", fake_chunks)
+    resp = llm_mod.chat([{"role": "user", "content": "hi"}], stream=True)
+    out = "".join(c.choices[0].delta.content for c in resp)
+    assert out == "你好"
