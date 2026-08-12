@@ -12,3 +12,6 @@ mock_orders.db
 
 # 评测输出产物
 backend/eval_result.txt
+
+# IDE 配置
+.idea/
