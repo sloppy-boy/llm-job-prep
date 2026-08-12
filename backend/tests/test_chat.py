@@ -1,30 +1,56 @@
 from fastapi.testclient import TestClient
 from app.main import app
 
+
+def _post(message: str):
+    """POST /api/v1/chat 的快捷方式。"""
+    return TestClient(app).post("/api/v1/chat",
+                                json={"session_id": "s1", "message": message},
+                                headers={"X-API-Key": "dev-local-key"})
+
+
+class _FakeMsg:
+    def __init__(self, t):
+        self.delta = type("D", (), {"content": t})()
+
+
+def _make_stream(text: str):
+    """把字符串逐字切成流式 chunk，模拟 llm.chat(stream=True) 的迭代器。"""
+    def _stream(*a, **k):
+        for ch in text:
+            yield type("R", (), {"choices": [_FakeMsg(ch)]})()
+    return _stream
+
+
 def test_chat_returns_sse(monkeypatch):
     import app.api.chat as chat_mod
-    def fake_run(q, sid, hist):
-        return {"draft_answer": "可以，支持7天无理由。",
-                "retrieved_chunks": [{"title": "七天无理由", "text": "支持"}],
-                "tool_results": [{"order_id": "20260811001", "status": "已发货", "items": "智能音箱", "amount": 299.0}]}
-    monkeypatch.setattr(chat_mod, "_async_run", fake_run)
-    c = TestClient(app)
-    r = c.post("/api/v1/chat", json={"session_id": "s1", "message": "订单到哪了"},
-               headers={"X-API-Key": "dev-local-key"})
+    monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist: {
+        "question": q, "session_id": sid, "history": hist or [],
+        "domain": "order",
+        "tool_results": [{"order_id": "20260811001", "status": "已发货",
+                          "items": "智能音箱", "amount": 299.0}],
+        "retrieved_chunks": [{"title": "七天无理由", "text": "支持"}]})
+    # 闸门走兜底整句分支：验证 card/token/sources/done 事件结构完整
+    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: False)
+    monkeypatch.setattr(chat_mod, "llm_chat", lambda msgs, stream=False: "可以，支持7天无理由。")
+    r = _post("订单到哪了")
     assert r.status_code == 200
     assert "token" in r.text and "sources" in r.text and "card" in r.text and "done" in r.text
+
 
 def test_chat_error_tool_result_emits_no_card(monkeypatch):
     """不存在订单时工具返回 {"error": ...}，不得被归类为 logistics 卡片（前端会 .map 崩溃）。"""
     import app.api.chat as chat_mod
-    def fake_run(q, sid, hist):
-        return {"draft_answer": "未找到该订单，请核实订单号。",
-                "retrieved_chunks": [],
-                "tool_results": [{"error": "订单不存在"}]}
-    monkeypatch.setattr(chat_mod, "_async_run", fake_run)
-    c = TestClient(app)
-    r = c.post("/api/v1/chat", json={"session_id": "s1", "message": "查 20260000000"},
-               headers={"X-API-Key": "dev-local-key"})
+    monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist: {
+        "question": q, "session_id": sid, "history": hist or [],
+        "domain": "order",
+        "tool_results": [{"error": "订单不存在"}],
+        "retrieved_chunks": []})
+    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: False)
+    monkeypatch.setattr(chat_mod, "llm_chat", lambda msgs, stream=False: "未找到该订单，请核实订单号。")
+    r = _post("查 20260000000")
     assert r.status_code == 200
     assert "card" not in r.text, "error 结果不应渲染卡片"
 
@@ -42,16 +68,13 @@ def test_chat_cache_hit_returns_cached_without_agent(monkeypatch):
     """命中语义缓存时直接返回缓存内容，不再调用 agent 链路。"""
     import app.api.chat as chat_mod
     called = {"n": 0}
-    def fake_run(q, sid, hist):
+    def fake_front(q, sid, hist):
         called["n"] += 1
-        return {"draft_answer": "不应走这里", "retrieved_chunks": [], "tool_results": []}
+        return {"domain": "policy", "tool_results": [], "retrieved_chunks": []}
     monkeypatch.setattr(chat_mod, "cache_get", lambda q: "缓存的七天无理由答案")
-    monkeypatch.setattr(chat_mod, "_async_run", fake_run)
-    c = TestClient(app)
-    r = c.post("/api/v1/chat", json={"session_id": "s1", "message": "怎么退货"},
-               headers={"X-API-Key": "dev-local-key"})
+    monkeypatch.setattr(chat_mod, "run_front", fake_front)
+    r = _post("怎么退货")
     assert "缓存的七天无理由答案" in r.text
-    assert "cache_hit" not in r.text or True  # 命中标记允许变化，核心是答案直接返回
     assert called["n"] == 0, "命中缓存不应走 agent 链路"
 
 
@@ -61,14 +84,14 @@ def test_chat_writes_cache_only_without_tools(monkeypatch):
     written = {}
     monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
     monkeypatch.setattr(chat_mod, "cache_set", lambda q, a: written.update({q: a}))
-    def fake_run(q, sid, hist):
-        return {"draft_answer": "答案A", "retrieved_chunks": [], "tool_results": []}
-    monkeypatch.setattr(chat_mod, "_async_run", fake_run)
-    c = TestClient(app)
-    r = c.post("/api/v1/chat", json={"session_id": "s1", "message": "怎么退货"},
-               headers={"X-API-Key": "dev-local-key"})
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist: {
+        "question": q, "session_id": sid, "history": hist or [],
+        "domain": "policy", "tool_results": [], "retrieved_chunks": []})
+    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: False)
+    monkeypatch.setattr(chat_mod, "llm_chat", lambda msgs, stream=False: "答案A")
+    r = _post("怎么退货")
     assert written.get("怎么退货") == "答案A"
-    # 逐字发送，需解析 SSE 拼接 token 后比较
+    # 兜底整句也走 SSE token 事件，解析拼接后比较
     import json as _json
     tokens = "".join(_json.loads(p.split("data: ", 1)[1].strip()).get("text", "")
                      for p in r.text.split("event: message")
@@ -82,13 +105,14 @@ def test_chat_does_not_cache_tool_results(monkeypatch):
     written = {}
     monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
     monkeypatch.setattr(chat_mod, "cache_set", lambda q, a: written.update({q: a}))
-    def fake_run(q, sid, hist):
-        return {"draft_answer": "答案", "retrieved_chunks": [],
-                "tool_results": [{"order_id": "1", "status": "已发货"}]}
-    monkeypatch.setattr(chat_mod, "_async_run", fake_run)
-    c = TestClient(app)
-    r = c.post("/api/v1/chat", json={"session_id": "s1", "message": "查订单1"},
-               headers={"X-API-Key": "dev-local-key"})
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist: {
+        "question": q, "session_id": sid, "history": hist or [],
+        "domain": "order",
+        "tool_results": [{"order_id": "1", "status": "已发货"}],
+        "retrieved_chunks": []})
+    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: True)
+    monkeypatch.setattr(chat_mod, "llm_chat_stream", _make_stream("答案"))
+    r = _post("查订单1")
     assert written == {}, "有工具结果不应写入缓存"
 
 
@@ -96,8 +120,33 @@ def test_chat_error_emits_error_event(monkeypatch):
     import app.api.chat as chat_mod
     def boom(q, sid, hist):
         raise RuntimeError("boom")
-    monkeypatch.setattr(chat_mod, "_async_run", boom)
-    c = TestClient(app)
-    r = c.post("/api/v1/chat", json={"session_id": "s1", "message": "hi"},
-               headers={"X-API-Key": "dev-local-key"})
+    monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
+    monkeypatch.setattr(chat_mod, "run_front", boom)
+    r = _post("hi")
     assert "error" in r.text and "done" in r.text
+
+
+def test_chat_streams_tokens_incrementally(monkeypatch):
+    """真流式：writer 输出逐 token 通过 SSE 增量推送，而非整句阻塞后回放。"""
+    import app.api.chat as chat_mod
+    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: True)
+    monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
+    monkeypatch.setattr(chat_mod, "cache_set", lambda q, a: None)
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, h: {
+        "question": q, "session_id": sid, "history": h or [],
+        "domain": "policy", "tool_results": [],
+        "retrieved_chunks": [{"title": "t", "text": "x"}]})
+    monkeypatch.setattr(chat_mod, "build_writer_messages", lambda s: [{"role": "user", "content": "q"}])
+
+    def fake_stream(*a, **k):
+        for ch in "流式":
+            yield type("R", (), {"choices": [_FakeMsg(ch)]})()
+        yield type("R", (), {"choices": []})()  # usage 末块：choices 为空
+
+    monkeypatch.setattr(chat_mod, "llm_chat_stream", fake_stream)
+    r = _post("hi")
+    assert r.text.count('"type": "token"') >= 2
+    assert "流" in r.text and "式" in r.text
+    # include_usage 的末块 choices 为空：必须被跳过而不是触发 IndexError
+    assert "error" not in r.text, "空 choices 末块被误读不应产出 error 事件"
+    assert "sources" in r.text, "空 choices 块被跳过后才应继续输出 sources"
