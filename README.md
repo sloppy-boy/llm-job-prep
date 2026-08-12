@@ -5,7 +5,7 @@
 
 ## 架构一句话
 
-`Next.js 前端（SSE 流式）→ FastAPI + LangGraph 多 Agent（路由→检索→写作→审核）→ Qdrant 向量库 / Postgres 会话 / Redis 语义缓存 / 工具调用（mock 订单库）`，全部经 Docker Compose 一键部署。
+`Next.js 前端（SSE 真流式）→ FastAPI + LangGraph 多 Agent（路由→工具→检索→前置质量闸门→流式写作）→ Qdrant 向量库 / SQLite 会话 / 语义缓存 / 工具调用（mock 订单库）`，全部经 Docker Compose 一键部署。
 
 ## 快速启动
 
@@ -54,10 +54,16 @@ cd backend && .venv/Scripts/python -m eval.judge
 
 > ⚠️ **评测前先停止后端服务**：Qdrant 本地模式（`qdrant_local/`）不支持多进程并发，若后端仍在运行，评测进程无法加载索引会**静默空检索**，导致准确率假性暴跌（实测 40%）。脚本已内置自检，被占用时会直接报错提示。跑完评测再启动后端即可。
 
+## 测试与 CI
+
+- 后端：`cd backend && .venv/Scripts/python -m pytest tests -q`（50 用例，含缓存/闸门/会话/评分/流式）
+- 前端：`cd frontend && npm test`（Vitest 16 用例：SSE 解析/卡片/聊天窗口）＋ `npm run build`
+- CI：`.github/workflows/ci.yml` 已备好——后端 pytest + 前端 build 每次 push 自动跑；评测 job 配好 GitHub Secrets（`DEEPSEEK_API_KEY`/`SILICONFLOW_API_KEY`）后 `workflow_dispatch` 手动触发。
+
 ## 面试叙事（3 句话）
 
 1. 这是一个**带工具调用的电商售后智能客服**：用户问订单 / 物流 / 退款时，系统不止基于知识库回答，还能真实查订单、查物流、发起退款申请，并带审核机制的多 Agent 协作。
-2. 技术上采用 **RAG + LangGraph 多 Agent + Function Calling 工具调用 + 商用工程化**：检索路由→向量召回→工具执行→写作→审核（循环上限 + 自省），叠加会话持久化、语义缓存、请求日志 / token 成本指标、模型重试与降级、SSE 流式前端。
+2. 技术上采用 **RAG + LangGraph 多 Agent + Function Calling 工具调用 + 商用工程化**：检索路由→向量召回→工具执行→前置质量闸门→流式写作（SSE 真流式，逐 token 推送、可中断），叠加会话持久化、语义缓存、评分反馈闭环、请求日志 / token 成本指标、模型重试与降级。
 3. 关键数据：自建 25 题评测集 + LLM-as-judge 四维打分，**答案准确率 76–92%**；全链路 Docker Compose 一键部署。
 
 ## GitHub Flow

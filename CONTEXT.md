@@ -56,14 +56,25 @@
 - 强调**面试表达**：3 句话讲清项目 + 量化结果 + 能应对追问
 - 提醒：LangChain 权重下降，面试更认 LangGraph + 原生 SDK + 底层原理
 
-## 七、项目状态（2026-08-12 完成 ✅）
+## 七、项目状态（2026-08-12 完成 ✅ + 深化轮）
 
-**「电商售后智能客服」求职作品集已全部完成**：14 任务 + 评测修复轮 + 最终评审，42 commits，全在 main。
+**「电商售后智能客服」求职作品集**：14 任务 + 评测修复轮 + **真流式深化轮（15 任务）**，全在 main。备份点 tag `v1.0-pre-streaming`。
 
-**最终成绩**：
+**第一轮最终成绩**：
 - 后端 29 个 pytest 全绿；前端 Next.js 16 build 通过；Docker Compose 校验通过
 - 真实评测：25 题 / 5 类，准确率 76-92%（3 次采样，诚实口径）
-- 架构：FastAPI + LangGraph 多Agent（路由/工具/检索/写作/审核，打回≤2）+ RAG（bge-m3 + Qdrant 混合检索 + rerank）+ Next.js 三栏工作台 + Docker Compose
+
+**深化轮（真流式重构，2026-08-12）新增**：
+- **真流式**：拆 LangGraph 一次性 invoke → 前置段（路由/工具/检索/前置质量闸门）同步 + writer 逐 token SSE 推送（可中断）；`run_agent` 保留同步接口供评测
+- **审核改造**：打回循环（≤2 重写）→ **前置质量闸门**（确定性判定，资料不足直接诚实兜底），评测准确率 92% → **96%**（order 域 80%→100%）
+- **会话闭环**：消息持久化接线 + `GET /api/v1/sessions` + 历史加载（前端会话列表真实化）
+- **评分闭环**：`POST /api/v1/feedback` + 前端 1-5 星提交
+- **前端体验**：react-markdown 渲染、生成光标、停止生成（AbortController）、错误重试
+- **前端测试**：Vitest 16 用例（SSE/卡片/聊天窗口）
+- **CI**：`.github/workflows/ci.yml`（pytest+build 自动、评测手动触发，配好 Secrets 即用）
+- 测试：后端 **50 pytest** + 前端 **16 vitest** + build 全绿
+
+**关键排障故事**（面试弹药）：① 评测 92%→40% 假崩 = Qdrant 本地索引被后端占用导致静默空检索（已加自检）；② 真流式 usage 末块 `choices` 空数组会 IndexError（已加防护+回归测试）；③ CI yaml 内联映射含 `${{ }}` 无效、eval 需 `QDRANT_URL=""` 本地模式。
 
 **如何运行（用户需在新终端操作，因 docker CLI 不在旧 PATH）**：
 ```bash
