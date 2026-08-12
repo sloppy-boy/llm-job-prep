@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from app.agents.graph import run_agent
+from app.cache import cache_get, cache_set
 
 router = APIRouter()
 
@@ -35,12 +36,22 @@ def _sse(data: dict) -> str:
 async def chat(req: ChatRequest):
     async def gen():
         yield _sse({"type": "thinking", "status": "正在识别问题类别..."})
+        # 语义缓存：精确命中直接返回缓存答案，跳过 LLM 全链路（省 token/降延迟）
+        cached = cache_get(req.message)
+        if cached:
+            yield _sse({"type": "thinking", "status": "⚡ 命中语义缓存，直接返回"})
+            yield _sse({"type": "token", "text": cached})
+            yield _sse({"type": "done"})
+            return
         try:
             result = _async_run(req.message, req.session_id, req.history)
             for tool in result.get("tool_results", []):
                 kind = _kind_of(tool)
                 if kind:
                     yield _sse({"type": "card", "kind": kind, "data": tool})
+            # 仅缓存确定性问答（无工具结果）；订单/物流/退款结果状态会变化，不缓存避免过时
+            if not result.get("tool_results"):
+                cache_set(req.message, result.get("draft_answer", ""))
             # 逐字发送：中文整句无空格，若按空格切分会一次送达；逐字可让前端平滑呈现打字效果
             for ch in result.get("draft_answer", ""):
                 yield _sse({"type": "token", "text": ch})
