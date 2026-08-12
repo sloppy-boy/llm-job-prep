@@ -28,6 +28,28 @@ def test_sessions_list_requires_key():
     assert c.get("/api/v1/sessions").status_code == 401
 
 
+def test_session_messages_returns_history(monkeypatch):
+    """GET /api/v1/sessions/{id}/messages 返回该会话历史，字段为 role/content。"""
+    import app.api.sessions as s
+    monkeypatch.setattr(s, "get_history", lambda sid, limit=10: [
+        {"role": "user", "content": "你好"},
+        {"role": "assistant", "content": "您好，有什么可以帮您？"},
+    ])
+    c = TestClient(app)
+    r = c.get("/api/v1/sessions/s1/messages", headers={"X-API-Key": "dev-local-key"})
+    assert r.status_code == 200
+    msgs = r.json()["messages"]
+    assert len(msgs) == 2
+    assert msgs[0] == {"role": "user", "content": "你好"}
+    assert msgs[1]["role"] == "assistant"
+
+
+def test_session_messages_requires_key():
+    """历史消息接口与其它业务接口一致，需 X-API-Key。"""
+    c = TestClient(app)
+    assert c.get("/api/v1/sessions/s1/messages").status_code == 401
+
+
 def test_list_sessions_empty_db(tmp_path, monkeypatch):
     """list_sessions 对空库返回 []；用临时 SQLite 隔离，避免污染真实 DB。"""
     import app.db.sessions as s
