@@ -89,4 +89,30 @@ describe("ChatWindow", () => {
     expect(screen.getByRole("button", { name: /重试/ })).toBeInTheDocument();
     expect(screen.getByText(/服务暂时不可用/)).toBeInTheDocument();
   });
+
+  it("点击重试会重新发起 streamChat", async () => {
+    const user = userEvent.setup();
+    const getHandlers = captureHandlers();
+
+    render(<ChatWindow sessionId="s1" onSources={vi.fn()} onThinking={vi.fn()} />);
+    await user.type(screen.getByPlaceholderText("输入问题…"), "订单到哪了");
+    await user.click(screen.getByRole("button", { name: "发送" }));
+
+    // 触发 onError：回答标记失败、setBusy(false)，出现「🔄 重试」按钮
+    act(() => {
+      getHandlers().onError("服务暂时不可用，请稍后重试");
+      getHandlers().onDone();
+    });
+
+    const retryBtn = screen.getByRole("button", { name: /重试/ });
+    expect(retryBtn).toBeInTheDocument();
+
+    await user.click(retryBtn);
+
+    // retry() 移除失败的 user+assistant 轮次并重新 send(retryText) → 再次调 streamChat
+    expect(mockedStreamChat).toHaveBeenCalledTimes(2);
+    // 第二次调用的 user 消息文本与原来一致
+    expect(mockedStreamChat.mock.calls[1][1]).toBe("订单到哪了");
+    expect(mockedStreamChat).toHaveBeenLastCalledWith("s1", "订单到哪了", expect.any(Object));
+  });
 });
