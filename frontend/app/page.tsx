@@ -15,7 +15,7 @@ export default function Home() {
 
   return (
     <main className="h-screen flex">
-      <SessionList active={sessionId} onNew={() => setSessionId(`sess-${Date.now()}`)} onSelect={() => {}} />
+      <SessionList active={sessionId} onNew={() => setSessionId(`sess-${Date.now()}`)} onSelect={setSessionId} />
       <div className="flex-1 flex flex-col">
         <header className="h-12 border-b flex items-center px-4">
           <h1 className="font-bold">电商售后智能客服工作台</h1>
