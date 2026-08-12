@@ -51,19 +51,20 @@ def llm_chat_stream(messages):
 async def chat(req: ChatRequest):
     async def gen():
         yield _sse({"type": "thinking", "status": "正在识别问题类别..."})
-        # 语义缓存：精确命中直接返回缓存答案，跳过 LLM 全链路（省 token/降延迟）
-        cached = cache_get(req.message)
-        if cached:
-            yield _sse({"type": "thinking", "status": "⚡ 命中语义缓存，直接返回"})
-            yield _sse({"type": "token", "text": cached})
-            try:
-                save_message(req.session_id, "user", req.message)
-                save_message(req.session_id, "assistant", cached)
-            except Exception:
-                pass  # 持久化失败不影响 SSE 返回
-            yield _sse({"type": "done"})
-            return
         try:
+            # 语义缓存：精确命中直接返回缓存答案，跳过 LLM 全链路（省 token/降延迟）
+            # 注意：cache_get 也在 try 内，命中/异常都不会逃逸 gen() 导致 500
+            cached = cache_get(req.message)
+            if cached:
+                yield _sse({"type": "thinking", "status": "⚡ 命中语义缓存，直接返回"})
+                yield _sse({"type": "token", "text": cached})
+                try:
+                    save_message(req.session_id, "user", req.message)
+                    save_message(req.session_id, "assistant", cached)
+                except Exception:
+                    pass  # 持久化失败不影响 SSE 返回
+                yield _sse({"type": "done"})
+                return
             # 前置段同步执行：路由→工具→检索，拿到领域/工具结果/检索切片后闸门判定
             st = run_front(req.message, req.session_id, req.history)
             for tool in st.get("tool_results", []):

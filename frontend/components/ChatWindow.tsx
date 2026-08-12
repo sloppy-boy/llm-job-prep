@@ -23,11 +23,15 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
   const cancelRef = useRef<(() => void) | null>(null);
   // 当前会话 id 的实时镜像，供流式回调判断自身是否已过期（会话切换竞态防护）
   const sessionRef = useRef(sessionId);
+  // 评分提交进行中标记：await 期间屏蔽重复点击，防止双击并发 POST
+  const submittingRef = useRef(false);
 
   // 评分点击：先提交后端，成功才落本地 rating（此后禁用）；失败可重试并短暂提示
   async function rate(n: number) {
-    if (rating !== null) return;
+    if (rating !== null || submittingRef.current) return;
+    submittingRef.current = true;
     const ok = await submitFeedback(sessionId, n);
+    submittingRef.current = false;
     if (ok) {
       setRating(n);
       setRatingError(false);
@@ -110,7 +114,10 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
         });
         onThinking(""); setBusy(false); cancelRef.current = null;
       },
-      onDone: () => { onThinking(""); setBusy(false); cancelRef.current = null; },
+      onDone: () => {
+        if (sessionRef.current !== sessionId) return;
+        onThinking(""); setBusy(false); cancelRef.current = null;
+      },
     });
     p.then(({ cancel }) => { cancelRef.current = cancel; });
   }
