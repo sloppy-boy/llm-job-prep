@@ -14,6 +14,7 @@ class ChatRequest(BaseModel):
     session_id: str
     message: str
     history: list = []
+    user_id: str = "user-001"  # demo 默认用户；生产由鉴权上下文注入（订单归属校验依据）
 
 def _kind_of(tool_result: dict) -> str | None:
     """推断卡片类型。error 结果或未知结构返回 None（跳过卡片，交给文本回答兜底）。
@@ -35,10 +36,10 @@ def _sse(data: dict) -> str:
     """构造一条 SSE 事件帧：event: message + data: <json>，符合 text/event-stream 协议。"""
     return f"event: message\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
-def run_front(question: str, session_id: str, history) -> dict:
+def run_front(question: str, session_id: str, history, user_id: str = "user-001") -> dict:
     """前置段：路由→工具→检索，返回含 domain/tool_results/retrieved_chunks 的状态。"""
     st = {"question": question, "session_id": session_id,
-          "history": history or [], "tool_results": []}
+          "history": history or [], "tool_results": [], "user_id": user_id}
     st.update(nodes.router_node(st))
     st.update(nodes.tool_node(st))
     st.update(nodes.retriever_node(st))
@@ -66,7 +67,7 @@ async def chat(req: ChatRequest):
                 yield _sse({"type": "done"})
                 return
             # 前置段同步执行：路由→工具→检索，拿到领域/工具结果/检索切片后闸门判定
-            st = run_front(req.message, req.session_id, req.history)
+            st = run_front(req.message, req.session_id, req.history, req.user_id)
             for tool in st.get("tool_results", []):
                 kind = _kind_of(tool)
                 if kind:

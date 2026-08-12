@@ -25,7 +25,7 @@ def _make_stream(text: str):
 def test_chat_returns_sse(monkeypatch):
     import app.api.chat as chat_mod
     monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
-    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist: {
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist, user_id="user-001": {
         "question": q, "session_id": sid, "history": hist or [],
         "domain": "order",
         "tool_results": [{"order_id": "20260811001", "status": "已发货",
@@ -43,7 +43,7 @@ def test_chat_error_tool_result_emits_no_card(monkeypatch):
     """不存在订单时工具返回 {"error": ...}，不得被归类为 logistics 卡片（前端会 .map 崩溃）。"""
     import app.api.chat as chat_mod
     monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
-    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist: {
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist, user_id="user-001": {
         "question": q, "session_id": sid, "history": hist or [],
         "domain": "order",
         "tool_results": [{"error": "订单不存在"}],
@@ -68,7 +68,7 @@ def test_chat_cache_hit_returns_cached_without_agent(monkeypatch):
     """命中语义缓存时直接返回缓存内容，不再调用 agent 链路。"""
     import app.api.chat as chat_mod
     called = {"n": 0}
-    def fake_front(q, sid, hist):
+    def fake_front(q, sid, hist, user_id="user-001"):
         called["n"] += 1
         return {"domain": "policy", "tool_results": [], "retrieved_chunks": []}
     monkeypatch.setattr(chat_mod, "cache_get", lambda q: "缓存的七天无理由答案")
@@ -84,7 +84,7 @@ def test_chat_writes_cache_only_without_tools(monkeypatch):
     written = {}
     monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
     monkeypatch.setattr(chat_mod, "cache_set", lambda q, a: written.update({q: a}))
-    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist: {
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist, user_id="user-001": {
         "question": q, "session_id": sid, "history": hist or [],
         "domain": "policy", "tool_results": [], "retrieved_chunks": []})
     monkeypatch.setattr(chat_mod, "gate_decision", lambda s: False)
@@ -105,7 +105,7 @@ def test_chat_does_not_cache_tool_results(monkeypatch):
     written = {}
     monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
     monkeypatch.setattr(chat_mod, "cache_set", lambda q, a: written.update({q: a}))
-    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist: {
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist, user_id="user-001": {
         "question": q, "session_id": sid, "history": hist or [],
         "domain": "order",
         "tool_results": [{"order_id": "1", "status": "已发货"}],
@@ -118,7 +118,7 @@ def test_chat_does_not_cache_tool_results(monkeypatch):
 
 def test_chat_error_emits_error_event(monkeypatch):
     import app.api.chat as chat_mod
-    def boom(q, sid, hist):
+    def boom(q, sid, hist, user_id="user-001"):
         raise RuntimeError("boom")
     monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
     monkeypatch.setattr(chat_mod, "run_front", boom)
@@ -132,7 +132,7 @@ def test_chat_streams_tokens_incrementally(monkeypatch):
     monkeypatch.setattr(chat_mod, "gate_decision", lambda s: True)
     monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
     monkeypatch.setattr(chat_mod, "cache_set", lambda q, a: None)
-    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, h: {
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, h, user_id="user-001": {
         "question": q, "session_id": sid, "history": h or [],
         "domain": "policy", "tool_results": [],
         "retrieved_chunks": [{"title": "t", "text": "x"}]})
