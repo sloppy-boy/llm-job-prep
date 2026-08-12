@@ -1,5 +1,13 @@
 export type SSECard = { kind: "order" | "logistics" | "refund"; data: any };
-export type ChatMessage = { role: "user" | "assistant"; content: string; cards?: SSECard[] };
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  cards?: SSECard[];
+  /** 该条 assistant 回答是否失败（onError 时置 true，用于显示重试按钮） */
+  failed?: boolean;
+  /** 失败时记录对应的用户消息文本，供重试时重新发送 */
+  retryText?: string;
+};
 
 // 服务间认证 Key：dev 默认 dev-local-key，生产通过 NEXT_PUBLIC_API_KEY 环境变量配置（构建期内联）
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "dev-local-key";

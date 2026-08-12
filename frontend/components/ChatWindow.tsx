@@ -69,7 +69,7 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
     const userText = (text ?? input).trim();
     if (!userText || busy) return;
     setInput(""); setBusy(true); setRating(null); setRatingError(false);
-    setMessages((ms) => [...ms, { role: "user", content: userText }, { role: "assistant", content: "", cards: [] }]);
+    setMessages((ms) => [...ms, { role: "user", content: userText }, { role: "assistant", content: "", cards: [], retryText: userText, failed: false }]);
     onThinking("正在识别问题类别...");
     // streamChat 立刻返回 promise，并在微任务里 resolve { cancel }；不等流结束即可拿到取消句柄。
     // 回调里的 sessionRef 守卫：会话切换后旧流的迟到回调被丢弃，杜绝旧 token 污染新会话。
@@ -104,7 +104,7 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
         if (sessionRef.current !== sessionId) return;
         setMessages((ms) => {
           const next = [...ms];
-          const last = { ...next[next.length - 1], content: msg };
+          const last = { ...next[next.length - 1], content: msg, failed: true };
           next[next.length - 1] = last;
           return next;
         });
@@ -113,6 +113,22 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
       onDone: () => { onThinking(""); setBusy(false); cancelRef.current = null; },
     });
     p.then(({ cancel }) => { cancelRef.current = cancel; });
+  }
+
+  // 回答失败重试：整轮移除失败的 user + assistant（避免重发时旧 user 消息重复显示），再用同一用户文本重新流式。
+  // 调用时 busy 已为 false（onError 里已 setBusy(false)），send 内部会重新置 busy=true。
+  function retry(m: ChatMessage) {
+    if (!m.retryText || busy) return;
+    setMessages((ms) => {
+      const i = ms.indexOf(m);
+      if (i < 0) return ms;
+      const next = [...ms];
+      // 失败的 assistant 上一条即对应的 user 消息，一并移除，整轮重发
+      const start = i > 0 && next[i - 1].role === "user" ? i - 1 : i;
+      next.splice(start, i - start + 1);
+      return next;
+    });
+    send(m.retryText);
   }
 
   return (
@@ -144,6 +160,11 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
               )}
               {m.cards?.map((c, j) => <MessageCard key={j} card={c} />)}
             </div>
+            {m.role === "assistant" && m.failed && (
+              <button onClick={() => retry(m)} className="block ml-2 mt-1 text-xs border rounded px-2 py-1 text-gray-600 hover:bg-gray-100">
+                🔄 重试
+              </button>
+            )}
           </div>
         ))}
       </div>
