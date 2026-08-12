@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import MessageCard from "./MessageCard";
@@ -84,11 +85,15 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
       },
       onToken: (t) => {
         if (sessionRef.current !== sessionId) return;
-        setMessages((ms) => {
-          const next = [...ms];
-          const last = { ...next[next.length - 1], content: next[next.length - 1].content + t };
-          next[next.length - 1] = last;
-          return next;
+        // flushSync 强制每 token 同步提交渲染：React 18 自动批处理会把同事件循环内连续
+        // setMessages 合并成一次渲染，导致"一次性蹦出"而非逐字打字效果
+        flushSync(() => {
+          setMessages((ms) => {
+            const next = [...ms];
+            const last = { ...next[next.length - 1], content: next[next.length - 1].content + t };
+            next[next.length - 1] = last;
+            return next;
+          });
         });
       },
       onCard: (c) => {
