@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from app.cache import cache_get, cache_set
+from app.db.sessions import save_message
 from app.llm import chat as llm_chat
 from app.agents.nodes import gate_decision, build_writer_messages
 from app.agents import nodes
@@ -55,6 +56,11 @@ async def chat(req: ChatRequest):
         if cached:
             yield _sse({"type": "thinking", "status": "⚡ 命中语义缓存，直接返回"})
             yield _sse({"type": "token", "text": cached})
+            try:
+                save_message(req.session_id, "user", req.message)
+                save_message(req.session_id, "assistant", cached)
+            except Exception:
+                pass  # 持久化失败不影响 SSE 返回
             yield _sse({"type": "done"})
             return
         try:
@@ -87,6 +93,12 @@ async def chat(req: ChatRequest):
             if not st.get("tool_results"):
                 cache_set(req.message, answer)
             yield _sse({"type": "sources", "items": st.get("retrieved_chunks", [])})
+            # 消息持久化：失败仅吞掉，绝不让 DB 写入异常破坏 SSE 流程
+            try:
+                save_message(req.session_id, "user", req.message)
+                save_message(req.session_id, "assistant", answer)
+            except Exception:
+                pass
         except Exception:
             # 整条流水线失败时绝不静默，向客户端发 error 事件兜底
             yield _sse({"type": "error", "message": "服务暂时不可用，请稍后重试或转人工"})

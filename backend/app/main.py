@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.middleware import ObservabilityMiddleware
 from app.api import health
 from app.api import chat as chat_api
+from app.api import sessions as sessions_api
 
 logging.basicConfig(level=logging.INFO)
 
@@ -13,3 +14,4 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 app.add_middleware(ObservabilityMiddleware)
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(chat_api.router, prefix="/api/v1")
+app.include_router(sessions_api.router, prefix="/api/v1")
