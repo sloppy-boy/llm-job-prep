@@ -84,3 +84,13 @@ def reviewer_node(state: AgentState) -> dict:
     return {"review_status": "passed" if passed else "rejected",
             "review_comment": "" if passed else check,
             "iteration": iteration}
+
+def gate_decision(state: AgentState) -> bool:
+    """前置质量闸门：资料足够才流式生成，否则走诚实兜底话术。
+    order 域看工具结果（error 视为不足）；policy/product 看检索命中；chitchat 恒通过。"""
+    if state["domain"] == "chitchat":
+        return True
+    if state["domain"] == "order":
+        return bool(state.get("tool_results") and isinstance(state["tool_results"][0], dict)
+                    and "error" not in state["tool_results"][0])
+    return bool(state.get("retrieved_chunks"))

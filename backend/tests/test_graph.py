@@ -26,3 +26,20 @@ def test_retriever_fallback_on_error(monkeypatch):
     out = nodes.retriever_node({"domain": "policy", "question": "怎么退货",
                                 "retrieved_chunks": [], "tool_results": [], "history": []})
     assert out["retrieved_chunks"] == []
+
+def test_gate_passes_when_tools_ok():
+    from app.agents.nodes import gate_decision
+    assert gate_decision({"domain": "order", "tool_results": [{"order_id": "1", "status": "已发货"}]}) is True
+
+def test_gate_passes_when_retrieved():
+    from app.agents.nodes import gate_decision
+    assert gate_decision({"domain": "policy", "retrieved_chunks": [{"title": "x", "text": "y"}]}) is True
+
+def test_gate_blocks_no_data():
+    from app.agents.nodes import gate_decision
+    assert gate_decision({"domain": "policy", "retrieved_chunks": []}) is False
+    assert gate_decision({"domain": "order", "tool_results": [{"error": "订单不存在"}]}) is False
+
+def test_gate_passes_chitchat():
+    from app.agents.nodes import gate_decision
+    assert gate_decision({"domain": "chitchat", "retrieved_chunks": []}) is True
