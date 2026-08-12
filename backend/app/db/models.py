@@ -15,4 +15,11 @@ class Message(Base):
     content = Column(String(4000))
     created_at = Column(DateTime, server_default=func.now())
 
+class Feedback(Base):
+    __tablename__ = "feedback"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(64), index=True)
+    rating = Column(Integer)
+    created_at = Column(DateTime, server_default=func.now())
+
 Base.metadata.create_all(engine)
