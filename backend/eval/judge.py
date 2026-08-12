@@ -1,7 +1,22 @@
 import json
+import sys
 from pathlib import Path
 from app.agents.graph import run_agent
 from app.llm import chat
+
+def _check_store():
+    """Qdrant 本地模式不支持多进程并发访问同一目录。
+    若后端服务正占用索引，评测进程加载会失败并静默空检索，导致假性低准确率。
+    启动时自检一次，失败给出明确提示，避免跑出无效结果。"""
+    from app.rag.retrieve import get_store
+    try:
+        get_store()
+    except RuntimeError as e:
+        if "already accessed by another instance" in str(e):
+            print("❌ Qdrant 本地索引正被占用（通常是后端服务在运行）。")
+            print("   评测需要独占索引：请先停止后端（停 8000 端口进程），再重跑评测。")
+            sys.exit(1)
+        raise
 
 def judge(points: list[str], answer: str) -> bool:
     """LLM 判分：回答是否覆盖全部要点。注意用词不同但要点覆盖也算。"""
@@ -12,6 +27,7 @@ def judge(points: list[str], answer: str) -> bool:
     return check.strip().upper().startswith("PASS")
 
 def main():
+    _check_store()
     q_path = Path(__file__).parent / "questions.json"
     data = json.loads(q_path.read_text(encoding="utf-8"))
     stats, bad = {}, []

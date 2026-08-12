@@ -9,3 +9,6 @@ node_modules/
 *.egg-info/
 .superpowers/
 mock_orders.db
+
+# 评测输出产物
+backend/eval_result.txt
