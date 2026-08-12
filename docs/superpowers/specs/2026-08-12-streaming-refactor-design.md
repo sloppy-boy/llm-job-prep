@@ -10,6 +10,7 @@
 1. **真流式**：消除「伪流式」露馅点（LLM 调用仍是阻塞式，前端是逐字回放而非真生成）
 2. **会话闭环**：`save_message`/`get_history` 模块存在但从未接线，前端 SessionList 是硬编码假会话
 3. **CI 文件**：补 GitHub Actions workflow 备用（配好远端即点亮真 CI）
+4. **前端优化**：Markdown 渲染、停止生成、生成光标、错误重试、评分闭环、前端测试
 
 已有成果**全部保留**：多 Agent 节点、RAG（bge-m3 + Qdrant 混合检索 + rerank）、工具调用、评测管线、语义缓存、SSE 前端。
 
@@ -66,7 +67,18 @@ chat.py gen()（SSE）
 - `frontend` job：setup-node 24 → npm ci → `npm run build`
 - `eval` job（可选）：`workflow_dispatch` 手动触发；需 Secrets `DEEPSEEK_API_KEY`/`SILICONFLOW_API_KEY`；跑评测需先建索引（`scripts/build_kb.py`）；注：CI 干净环境无 Qdrant 并发冲突，评测可用。
 
-### 四、测试与验证策略
+### 四、前端优化（配合真流式）
+
+| 项 | 实现 | 说明 |
+|----|------|------|
+| **Markdown 渲染** | 引入 `react-markdown` + `remark-gfm` | assistant 消息内容用 Markdown 渲染（粗体/列表/表格/代码块）；user 消息保持纯文本。流式 token 增长时重复渲染可接受（文本量小） |
+| **停止生成** | `sse.ts` 的 `streamChat` 改用 `AbortController`，返回 `{ cancel }`；ChatWindow 生成中显示「停止」按钮，点击 `cancel()` 中断 fetch | 真流式配套，面试可讲中断处理 |
+| **生成中光标** | `busy` 状态时最后一个 assistant 消息尾部显示 CSS 闪烁光标 /「正在生成…」 | 流式感知 |
+| **错误重试** | `onError` 时该消息下方显示「重试」按钮，点击重发该用户消息 | 不干等 |
+| **评分闭环** | 新增 `POST /api/v1/feedback`（`session_id` + `rating`），前端 1-5 星点击后调后端记录（存 DB），已评后禁用 | 反馈数据驱动优化，面试可讲 |
+| **前端测试** | Vitest + Testing Library + jsdom；覆盖 `sse.ts` 解析（mock fetch）、`MessageCard` 各卡片渲染、ChatWindow 滚动/错误重试 | 补「0 前端测试」缺口 |
+
+### 五、测试与验证策略
 
 - TDD：先写失败测试再实现
 - 新增/迁移测试：
@@ -79,14 +91,24 @@ chat.py gen()（SSE）
 
 ## 文件变更清单
 
+后端：
 - `backend/app/api/chat.py`：编排重构（前置段+流式段+会话保存）
-- `backend/app/agents/graph.py`：`run_agent` 保留同步接口；打回循环相关逻辑迁移
 - `backend/app/agents/nodes.py`：writer 支持 stream 参数；移除 reviewer 打回路径
-- `backend/app/api/sessions.py`（新）：`GET /api/v1/sessions`
+- `backend/app/agents/graph.py`：`run_agent` 保留同步接口（前置段 + 非流式 writer）
+- `backend/app/api/sessions.py`（新）：`GET /api/v1/sessions` + db 层 `list_sessions()`
+- `backend/app/api/feedback.py`（新）：`POST /api/v1/feedback` 记录评分
+- `backend/app/db/sessions.py`：加 `list_sessions()`；确认 save 调用点
+- `backend/tests/test_chat.py`、`test_graph.py`、`test_llm.py`、新增 `test_sessions.py`、`test_feedback.py`
+
+前端：
+- `frontend/lib/sse.ts`：AbortController + 返回 `{ cancel }`
+- `frontend/components/ChatWindow.tsx`：Markdown 渲染、停止按钮、生成光标、错误重试、评分闭环、历史加载
 - `frontend/components/SessionList.tsx`：真实会话列表
-- `frontend/components/ChatWindow.tsx`：历史加载
-- `backend/tests/test_chat.py`、`test_graph.py`、`test_llm.py`、新增 `test_sessions.py`
-- `.github/workflows/ci.yml`（新）
+- `frontend/package.json`：新增 react-markdown、remark-gfm、vitest 等依赖
+- `frontend/tests/`（新）：`sse.test.ts`、`MessageCard.test.tsx`、`ChatWindow.test.tsx`
+
+CI：
+- `.github/workflows/ci.yml`（新）：backend pytest + frontend build + eval（手动触发，Secrets）
 
 ## 回滚
 
