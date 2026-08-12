@@ -2,8 +2,10 @@ import json
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from app.agents.graph import run_agent
 from app.cache import cache_get, cache_set
+from app.llm import chat as llm_chat
+from app.agents.nodes import gate_decision, build_writer_messages
+from app.agents import nodes
 
 router = APIRouter()
 
@@ -32,6 +34,18 @@ def _sse(data: dict) -> str:
     """构造一条 SSE 事件帧：event: message + data: <json>，符合 text/event-stream 协议。"""
     return f"event: message\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
+def run_front(question: str, session_id: str, history) -> dict:
+    """前置段：路由→工具→检索，返回含 domain/tool_results/retrieved_chunks 的状态。"""
+    st = {"question": question, "session_id": session_id,
+          "history": history or [], "tool_results": []}
+    st.update(nodes.router_node(st))
+    st.update(nodes.tool_node(st))
+    st.update(nodes.retriever_node(st))
+    return st
+
+def llm_chat_stream(messages):
+    return llm_chat(messages, stream=True)
+
 @router.post("/chat")
 async def chat(req: ChatRequest):
     async def gen():
@@ -44,18 +58,33 @@ async def chat(req: ChatRequest):
             yield _sse({"type": "done"})
             return
         try:
-            result = _async_run(req.message, req.session_id, req.history)
-            for tool in result.get("tool_results", []):
+            # 前置段同步执行：路由→工具→检索，拿到领域/工具结果/检索切片后闸门判定
+            st = run_front(req.message, req.session_id, req.history)
+            for tool in st.get("tool_results", []):
                 kind = _kind_of(tool)
                 if kind:
                     yield _sse({"type": "card", "kind": kind, "data": tool})
+            answer = ""
+            if gate_decision(st):
+                # 真流式：writer 逐 token 增量推送，前端边收边渲染
+                msgs = build_writer_messages(st)
+                stream_resp = llm_chat_stream(msgs)
+                parts = []
+                for chunk in stream_resp:
+                    piece = (chunk.choices[0].delta.content or "")
+                    if piece:
+                        parts.append(piece)
+                        yield _sse({"type": "token", "text": piece})
+                answer = "".join(parts)
+            else:
+                # 资料不足兜底：整句一次返回（诚实话术，无需流式）
+                msgs = build_writer_messages(st)
+                answer = llm_chat(msgs, stream=False) or ""
+                yield _sse({"type": "token", "text": answer})
             # 仅缓存确定性问答（无工具结果）；订单/物流/退款结果状态会变化，不缓存避免过时
-            if not result.get("tool_results"):
-                cache_set(req.message, result.get("draft_answer", ""))
-            # 逐字发送：中文整句无空格，若按空格切分会一次送达；逐字可让前端平滑呈现打字效果
-            for ch in result.get("draft_answer", ""):
-                yield _sse({"type": "token", "text": ch})
-            yield _sse({"type": "sources", "items": result.get("retrieved_chunks", [])})
+            if not st.get("tool_results"):
+                cache_set(req.message, answer)
+            yield _sse({"type": "sources", "items": st.get("retrieved_chunks", [])})
         except Exception:
             # 整条流水线失败时绝不静默，向客户端发 error 事件兜底
             yield _sse({"type": "error", "message": "服务暂时不可用，请稍后重试或转人工"})
@@ -67,9 +96,3 @@ async def chat(req: ChatRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-store", "Connection": "keep-alive"},
     )
-
-def _async_run(message: str, session_id: str, history: list):
-    # 阻塞式 LLM 简化版：后续可改真流式。异常向上抛，由 gen 兜底为 error 事件。
-    # 返回 run_agent 的原始结果（draft_answer / retrieved_chunks / tool_results），
-    # 与测试 monkeypatch 的同步桩返回结构一致；若后续改真流式可升级为 async 并在 gen 内 await。
-    return run_agent(message, session_id, history)
