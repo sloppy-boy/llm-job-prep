@@ -70,3 +70,5 @@ def test_add_uses_stable_content_addressed_ids(monkeypatch):
     assert ids1[0] == ids2[0], "同 path+page 重入必须同 id（幂等覆盖）"
     assert ids1[1] != ids2[1], "不同 path 的 id 必须不同"
     assert ids1[0] != ids1[1], "同文件不同 page 的 id 必须不同"
+    for p in ids1 + ids2:
+        assert 0 <= p < 2**64, "Qdrant 点 id 必须落在 u64 范围"

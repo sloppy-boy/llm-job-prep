@@ -36,7 +36,8 @@ class VectorStore:
         vectors = embed_texts(texts)
         points = []
         for i, (v, m) in enumerate(zip(vectors, metadatas)):
-            stable = int(hashlib.md5(f"{m.get('path', '')}:{m.get('page', i)}".encode()).hexdigest(), 16)
+            digest = hashlib.md5(f"{m.get('path', '')}:{m.get('page', i)}".encode()).hexdigest()
+            stable = int(digest, 16) % (2**64)  # 128-bit md5 取模压回 Qdrant u64 点 id 范围
             points.append(PointStruct(id=stable, vector=v, payload=m))
         self.client.upsert(self.collection, points)
 
