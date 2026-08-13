@@ -42,3 +42,12 @@ def test_memory_store_separates_keys():
         assert s.check("a", per_min=3)[0] is True
     assert s.check("a", per_min=3)[0] is False
     assert s.check("b", per_min=3)[0] is True  # 独立配额
+
+
+def test_metrics_tracks_rejected():
+    import app.metrics as m
+    m._state["rejected"] = {"ratelimit": 0, "auth": 0}
+    m.record_rejected("ratelimit")
+    snap = m.snapshot()
+    assert snap["rejected"]["ratelimit"] == 1
+    assert snap["rejected"]["auth"] == 0

@@ -16,5 +16,8 @@ class Settings(BaseSettings):
     semantic_cache_threshold: float = 0.90
     semantic_cache_max: int = 500
     api_key: str = "dev-local-key"
+    ratelimit_enabled: bool = True
+    ratelimit_global_per_min: int = 120
+    ratelimit_user_per_min: int = 30
 
 settings = Settings()
