@@ -11,3 +11,5 @@ redis==5.*
 pytest==8.*
 sse-starlette==2.*
 python-dotenv==1.*
+rank_bm25==0.2.*
+jieba==0.42.*

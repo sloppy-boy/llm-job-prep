@@ -9,6 +9,7 @@ from app.rag.vector_store import VectorStore
 
 def main():
     store = VectorStore()
+    store.reset()  # 重建前清空：分块边界可能变化，避免陈旧 chunk 残留
     kb = Path(__file__).resolve().parents[1] / "knowledge_base"
     all_texts, all_meta = [], []
     for md in sorted(kb.rglob("*.md")):

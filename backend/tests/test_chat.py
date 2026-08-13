@@ -150,3 +150,66 @@ def test_chat_streams_tokens_incrementally(monkeypatch):
     # include_usage 的末块 choices 为空：必须被跳过而不是触发 IndexError
     assert "error" not in r.text, "空 choices 末块被误读不应产出 error 事件"
     assert "sources" in r.text, "空 choices 块被跳过后才应继续输出 sources"
+
+
+def _collect(agen):
+    """asyncio.run 收集 async 迭代器结果（测试环境无 pytest-asyncio）。"""
+    import asyncio
+    async def _run():
+        return [x async for x in agen]
+    return asyncio.run(_run())
+
+
+def test_aiter_sync_yields_all():
+    import app.api.chat as chat_mod
+    assert _collect(chat_mod._aiter_sync(iter(["a", "b", "c"]))) == ["a", "b", "c"]
+
+
+def test_aiter_sync_empty():
+    import app.api.chat as chat_mod
+    assert _collect(chat_mod._aiter_sync(iter([]))) == []
+
+
+def test_aiter_sync_propagates_non_stop_exception():
+    import pytest
+    import app.api.chat as chat_mod
+
+    def gen():
+        yield "a"
+        yield "b"
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        _collect(chat_mod._aiter_sync(gen()))  # 非 StopIteration 异常向上传播，不被吞
+
+
+def test_blocking_calls_go_through_thread_pool(monkeypatch):
+    """阻塞调用（cache_get/run_front/llm_chat/cache_set/save_message）确实走线程池，不阻塞事件循环。"""
+    import asyncio
+    import app.api.chat as chat_mod
+    seen = []
+
+    async def fake_blocking(fn, *a, **k):
+        seen.append(fn.__name__)
+        return await asyncio.to_thread(fn, *a, **k)
+
+    monkeypatch.setattr(chat_mod, "_blocking", fake_blocking)
+
+    def fake_cache_get(q):
+        return None
+
+    def fake_front(q, sid, hist, user_id="user-001"):
+        return {"question": q, "session_id": sid, "history": hist or [],
+                "domain": "policy", "tool_results": [], "retrieved_chunks": []}
+
+    def fake_llm_chat(msgs, stream=False):
+        return "答"
+
+    monkeypatch.setattr(chat_mod, "cache_get", fake_cache_get)
+    monkeypatch.setattr(chat_mod, "run_front", fake_front)
+    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: False)
+    monkeypatch.setattr(chat_mod, "llm_chat", fake_llm_chat)
+    r = _post("hi")
+    assert r.status_code == 200
+    for name in ("fake_cache_get", "fake_front", "fake_llm_chat", "cache_set", "save_message"):
+        assert name in seen, f"{name} 应走线程池"

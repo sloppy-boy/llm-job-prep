@@ -1,9 +1,16 @@
+import threading
+from pathlib import Path
 import httpx
+import jieba
+from rank_bm25 import BM25Okapi
 from app.rag.embed import embed_texts
 from app.rag.vector_store import VectorStore
 from app.config import settings
+from app.rag.chunker import chunk_markdown
 
 _store = None
+_bm25 = None
+_bm25_lock = threading.Lock()
 
 def get_store() -> VectorStore:
     global _store
@@ -11,13 +18,66 @@ def get_store() -> VectorStore:
         _store = VectorStore()
     return _store
 
+def _tokenize(text: str) -> list[str]:
+    """jieba 分词，过滤空白/纯标点 token。query 与语料统一用此函数保证一致性。"""
+    return [t.strip() for t in jieba.lcut(text) if t.strip()]
+
+def _load_corpus() -> list[str]:
+    """与 build_kb 同源同序读取 knowledge_base，返回全部分块文本（BM25 语料）。"""
+    kb = Path(__file__).resolve().parents[2] / "knowledge_base"
+    texts = []
+    for md in sorted(kb.rglob("*.md")):
+        for c in chunk_markdown(md):
+            texts.append(c["text"])
+    return texts
+
+def _get_bm25() -> tuple[BM25Okapi, dict] | None:
+    """懒构建整库 BM25 索引（threading.Lock 防并发首次构建竞态）。失败返回 None 由调用方回退纯向量。"""
+    global _bm25
+    if _bm25 is None:
+        with _bm25_lock:
+            if _bm25 is None:
+                try:
+                    corpus = _load_corpus()
+                    tokenized = [_tokenize(t) for t in corpus]
+                    idx = {}
+                    for i, t in enumerate(corpus):
+                        idx.setdefault(t, i)  # 重复文本取首个位置
+                    _bm25 = (BM25Okapi(tokenized), idx)
+                except Exception:
+                    _bm25 = None  # 语料不可用则不启用 BM25
+    return _bm25
+
+def _norm(vals: list[float]) -> list[float]:
+    """min-max 归一化到 [0,1]；全等（单候选）时给 0.5 避免除零。"""
+    lo, hi = min(vals), max(vals)
+    if hi <= lo:
+        return [0.5] * len(vals)
+    return [(v - lo) / (hi - lo) for v in vals]
+
 def _keyword_boost(query: str, docs: list[dict]) -> list[dict]:
-    """关键词加分（简化启发式，非标准 BM25）：向量分 + 查询字符在文档中的命中加分。"""
-    scored = []
-    for d in docs:
-        hits = sum(1 for t in query if t in d["text"])
-        scored.append({**d, "score": d.get("score", 0) * 0.6 + hits * 0.4})
-    return sorted(scored, key=lambda x: x["score"], reverse=True)
+    """向量分与真 BM25 分融合重排：min-max 归一化后 0.6*vec + 0.4*bm25。
+
+    BM25 不可用 / 查询词全不命中 / 任何异常 → 回退纯向量顺序。永不抛出。
+    """
+    try:
+        bm25 = _get_bm25()
+        if bm25 is None:
+            return sorted(docs, key=lambda x: x.get("score", 0), reverse=True)
+        bm25_obj, idx = bm25
+        q_tokens = _tokenize(query)
+        scores = bm25_obj.get_scores(q_tokens)
+        if not scores or max(scores) <= 0:
+            return sorted(docs, key=lambda x: x.get("score", 0), reverse=True)
+        score_by_text = {text: scores[i] for text, i in idx.items()}
+        vecs = [d.get("score", 0) for d in docs]
+        bms = [score_by_text.get(d["text"], 0.0) for d in docs]  # 不在语料（旧向量库）→ 0
+        nv, nb = _norm(vecs), _norm(bms)
+        for i, d in enumerate(docs):
+            d["score"] = 0.6 * nv[i] + 0.4 * nb[i]
+        return sorted(docs, key=lambda x: x["score"], reverse=True)
+    except Exception:
+        return sorted(docs, key=lambda x: x.get("score", 0), reverse=True)
 
 def hybrid_search(query: str, top_k=20) -> list[dict]:
     vec = embed_texts([query])[0]
