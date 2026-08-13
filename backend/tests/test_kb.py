@@ -115,3 +115,23 @@ def test_pending_docs_lists_drafts(kb_env):
         "---\ntitle: A\nstatus: draft\n---\n\nx", encoding="utf-8")
     pending = kb_mod.pending_docs()
     assert len(pending) == 1 and pending[0]["doc_id"] == "20260814-a.md"
+
+
+def test_draft_doc_forces_draft_status_even_if_llm_outputs_published(kb_env, monkeypatch):
+    monkeypatch.setattr(kb_mod, "_already_exists", lambda q: False)
+    monkeypatch.setattr(kb_mod, "_format_doc",
+                        lambda q, a: "---\ntitle: 越权\ncategory: backfill\nstatus: published\n---\n\n正文内容若干。")
+    res = kb_mod.draft_doc("q", "a")
+    assert res["status"] == "draft"
+    written = (kb_mod.BACKFILL_DIR / res["doc_id"]).read_text(encoding="utf-8")
+    assert "status: draft" in written
+    assert kb_mod.is_draft(kb_mod.BACKFILL_DIR / res["doc_id"]) is True
+
+
+def test_draft_doc_prepends_frontmatter_when_llm_omits(kb_env, monkeypatch):
+    monkeypatch.setattr(kb_mod, "_already_exists", lambda q: False)
+    monkeypatch.setattr(kb_mod, "_format_doc", lambda q, a: "正文没有 frontmatter。")
+    res = kb_mod.draft_doc("q", "a")
+    written = (kb_mod.BACKFILL_DIR / res["doc_id"]).read_text(encoding="utf-8")
+    assert written.startswith("---")
+    assert "status: draft" in written

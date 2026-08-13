@@ -48,6 +48,13 @@ def _extract_title(body: str) -> str:
     return meta.get("title", "")
 
 
+def _ensure_draft_frontmatter(body: str, question: str) -> str:
+    """写盘前剥离既有 frontmatter 并重建为 status: draft，确保任何 LLM 输出都不能绕过审核 gate。"""
+    meta, content = _extract_frontmatter(body)
+    title = meta.get("title") or question[:20]
+    return (f"---\ntitle: {title}\ncategory: backfill\nstatus: draft\n---\n\n{content.strip()}\n")
+
+
 def _already_exists(question: str) -> bool:
     """知识库已存在高相似条目？用向量原始余弦（非归一化融合分）≥ 语义缓存阈值判定。"""
     try:
@@ -70,6 +77,7 @@ def draft_doc(question: str, answer: str) -> dict:
     except Exception:
         body = _fallback_doc(question, answer)
     # 3) 写文件（文件名即 doc_id，日期前缀+问题短哈希保证可排序且唯一）
+    body = _ensure_draft_frontmatter(body, question)
     BACKFILL_DIR.mkdir(parents=True, exist_ok=True)
     fname = f"{time.strftime('%Y%m%d')}-{_slug(question)}-{hashlib.md5(question.encode()).hexdigest()[:6]}.md"
     path = BACKFILL_DIR / fname
