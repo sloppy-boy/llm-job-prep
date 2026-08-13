@@ -1,4 +1,4 @@
-from app.rag.chunker import chunk_markdown, _split_sentences, _units_of
+from app.rag.chunker import chunk_markdown, read_frontmatter, is_draft, _split_sentences, _units_of
 
 
 def _write(tmp_path, name, content):
@@ -94,3 +94,17 @@ def test_signature_backcompat(tmp_path):
     assert chunk_markdown(md) == chunk_markdown(md, strategy="recursive")
     assert _split_sentences("句子一。句子二！句子三？") == ["句子一。", "句子二！", "句子三？"]
     assert _units_of("## 标题\n\n段落一\n\n| a | b |\n| c | d |") == ["## 标题", "段落一", "| a | b |\n| c | d |"]
+
+
+def test_chunk_metadata_includes_path(tmp_path):
+    md = _write(tmp_path, "a.md", "# 标题\n\n正文。")
+    chunks = chunk_markdown(md)
+    assert chunks[0]["metadata"]["path"] == str(md)
+
+
+def test_read_frontmatter_and_is_draft(tmp_path):
+    d = _write(tmp_path, "d.md", "---\ntitle: x\nstatus: draft\n---\n\n正文")
+    p = _write(tmp_path, "p.md", "---\ntitle: x\nstatus: published\n---\n\n正文")
+    assert read_frontmatter(d)["status"] == "draft"
+    assert is_draft(d) is True
+    assert is_draft(p) is False

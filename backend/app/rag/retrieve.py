@@ -6,7 +6,9 @@ from rank_bm25 import BM25Okapi
 from app.rag.embed import embed_texts
 from app.rag.vector_store import VectorStore
 from app.config import settings
-from app.rag.chunker import chunk_markdown
+from app.rag.chunker import chunk_markdown, is_draft
+
+_KB_ROOT = Path(__file__).resolve().parents[2] / "knowledge_base"
 
 _store = None
 _bm25 = None
@@ -23,10 +25,11 @@ def _tokenize(text: str) -> list[str]:
     return [t.strip() for t in jieba.lcut(text) if t.strip()]
 
 def _load_corpus() -> list[str]:
-    """与 build_kb 同源同序读取 knowledge_base，返回全部分块文本（BM25 语料）。"""
-    kb = Path(__file__).resolve().parents[2] / "knowledge_base"
+    """与 build_kb 同源同序读取 knowledge_base，返回全部分块文本（BM25 语料）。草稿跳过。"""
     texts = []
-    for md in sorted(kb.rglob("*.md")):
+    for md in sorted(_KB_ROOT.rglob("*.md")):
+        if is_draft(md):
+            continue
         for c in chunk_markdown(md):
             texts.append(c["text"])
     return texts

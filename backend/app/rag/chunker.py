@@ -14,6 +14,16 @@ def _extract_frontmatter(raw: str) -> tuple[dict, str]:
             return meta, parts[2]
     return meta, raw
 
+def read_frontmatter(path: Path) -> dict:
+    """读取 md 的 YAML frontmatter 元数据（轻量，供列表/过滤用）。"""
+    meta, _ = _extract_frontmatter(path.read_text(encoding="utf-8"))
+    return meta
+
+
+def is_draft(path: Path) -> bool:
+    """frontmatter status == draft 视为草稿（不进检索/语料/索引）。"""
+    return read_frontmatter(path).get("status") == "draft"
+
 def _split_sentences(text: str) -> list[str]:
     """按句子结束标点切分（保留标点），返回 >=1 个片段。"""
     parts = re.split(r"(?<=[。！？.!?])", text)
@@ -135,4 +145,4 @@ def chunk_markdown(path: Path, strategy="recursive", chunk_size=400, overlap=50)
             pending_len = len(u)
     flush()
 
-    return [{"text": c, "metadata": {**meta, "page": i}} for i, c in enumerate(chunks)]
+    return [{"text": c, "metadata": {**meta, "path": str(path), "page": i}} for i, c in enumerate(chunks)]

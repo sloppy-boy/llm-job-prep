@@ -72,3 +72,13 @@ def test_fusion_handles_single_candidate(monkeypatch):
     monkeypatch.setattr(retrieve, "_get_bm25", lambda: (bm25, idx))
     out = retrieve._keyword_boost("退货", [{"text": "唯一文档内容", "score": 0.7}])
     assert isinstance(out, list) and len(out) == 1  # 单候选 max==min 不除零
+
+
+def test_load_corpus_skips_drafts(monkeypatch, tmp_path):
+    import app.rag.retrieve as r
+    (tmp_path / "a.md").write_text("---\nstatus: draft\n---\n\n草稿内容。", encoding="utf-8")
+    (tmp_path / "b.md").write_text("---\nstatus: published\n---\n\n正式内容。", encoding="utf-8")
+    monkeypatch.setattr(r, "_KB_ROOT", tmp_path)
+    texts = r._load_corpus()
+    assert any("正式内容" in t for t in texts)
+    assert not any("草稿内容" in t for t in texts)
