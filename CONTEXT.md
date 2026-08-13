@@ -78,6 +78,7 @@
 
 **优化轮（2026-08-13）**：
 - **#1 数据源抽象 + 订单归属校验（完成）**：`data_source.py` 定义 `OrderDataSource` 契约 + `MockOrderDataSource`，`dispatch` 依赖注入（接真实 ERP 只写新实现替换）；订单加 `user_id` 归属，`get_order`/`create_refund` 校验越权（A 查 B 的订单 → 无权限兜底）；`ChatRequest` 加 `user_id`（默认 user-001）链路透传。54 pytest 全绿 + 端到端实测越权拦截
+- **限流（2026-08-14）**：令牌桶 + `RateLimitStore`（Redis Lua 原子/内存锁降级）；`RateLimitMiddleware` 全局按 Key + `/chat` 按 user_id 双层；429 带 `Retry-After`/`X-RateLimit-*` 头；metrics 拒绝计数；conftest 默认关闭避免污染既有用例。93 pytest 全绿。
 - 待优化清单见 `docs/optimization-todo.md`（下一步：限流 → 可观测 → 评测扩充）；架构详解见 `docs/architecture.md`
 
 **如何运行（用户需在新终端操作，因 docker CLI 不在旧 PATH）**：
