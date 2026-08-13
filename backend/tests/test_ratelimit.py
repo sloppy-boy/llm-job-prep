@@ -74,3 +74,21 @@ def test_redis_store_uses_lua_deny():
     store = RedisRateLimitStore(FakeRedis())
     allowed, wait, remaining = store.check("k", 60)
     assert allowed is False and wait == 2.5 and remaining == 0.0
+
+
+def test_redis_store_degrades_to_memory_on_failure(monkeypatch):
+    from app.ratelimit import RedisRateLimitStore, MemoryRateLimitStore
+    calls = {"n": 0}
+    class DeadRedis:
+        def eval(self, script, numkeys, key, *args):
+            calls["n"] += 1
+            raise ConnectionError("redis down")
+    store = RedisRateLimitStore(DeadRedis())
+    # 第一次：eval 抛异常 → 降级内存，仍能返回结果
+    ok, wait, remaining = store.check("k", 60)
+    assert ok is True or ok is False  # 内存桶正常返回，不抛
+    assert calls["n"] == 1
+    # 第二次：已标记 dead，不再碰 redis
+    store.check("k", 60)
+    assert calls["n"] == 1
+    assert isinstance(store._mem, MemoryRateLimitStore)

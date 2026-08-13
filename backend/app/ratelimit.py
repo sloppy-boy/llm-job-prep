@@ -61,6 +61,7 @@ if not tokens then tokens = capacity end
 if not last then last = now end
 tokens = math.min(capacity, tokens + (now - last) * rate)
 redis.call('set', KEYS[1] .. ':ts', now)
+redis.call('expire', KEYS[1] .. ':ts', 300)
 if tokens >= n then
     tokens = tokens - n
     redis.call('set', KEYS[1], tokens)
@@ -76,15 +77,23 @@ end
 
 
 class RedisRateLimitStore(RateLimitStore):
-    """Redis 实现：同语义令牌桶，Lua 脚本保证 read-modify-write 原子性。"""
+    """Redis 实现：同语义令牌桶，Lua 脚本保证 read-modify-write 原子性。运行期故障永久降级内存。"""
 
     def __init__(self, redis_client):
         self._r = redis_client
+        self._dead = False
+        self._mem = MemoryRateLimitStore()
 
     def check(self, key: str, per_min: int) -> tuple[bool, float, float]:
-        res = self._r.eval(_TOKEN_BUCKET_LUA, 1, key,
-                           time.time(), per_min / 60.0, per_min, 1)
-        return bool(res[0]), float(res[1]), float(res[2])
+        if self._dead:
+            return self._mem.check(key, per_min)
+        try:
+            res = self._r.eval(_TOKEN_BUCKET_LUA, 1, key,
+                               time.time(), per_min / 60.0, per_min, 1)
+            return bool(res[0]), float(res[1]), float(res[2])
+        except Exception:
+            self._dead = True  # 运行期 Redis 故障 → 永久降级内存，可用性优先
+            return self._mem.check(key, per_min)
 
 
 _available = False
