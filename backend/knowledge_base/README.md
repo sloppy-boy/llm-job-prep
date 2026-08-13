@@ -1,6 +1,14 @@
+---
+title: 知识库使用说明
+category: meta
+status: draft
+---
+
 # 知识库（Obsidian Vault）
 
 用 Obsidian「打开文件夹作为仓库」打开本目录即可管理知识库（markdown + YAML frontmatter）。
+
+> 本说明文档 `status: draft`，不会被摄入检索语料（reindex/BM25 均跳过草稿）。
 
 - **新增/修改/删除** .md 文档后，调用 `POST /api/v1/kb/reindex` 重建索引（需 `X-API-Key`）
 - frontmatter 支持 `title` / `category` / `status`；`status: draft` 的文档**不会进入检索**（待审核）
