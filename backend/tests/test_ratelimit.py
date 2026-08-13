@@ -51,3 +51,26 @@ def test_metrics_tracks_rejected():
     snap = m.snapshot()
     assert snap["rejected"]["ratelimit"] == 1
     assert snap["rejected"]["auth"] == 0
+
+
+def test_redis_store_uses_lua_allow():
+    from app.ratelimit import RedisRateLimitStore, _TOKEN_BUCKET_LUA
+    calls = {}
+    class FakeRedis:
+        def eval(self, script, numkeys, key, *args):
+            calls["script"] = script
+            return [1, 0, 10]
+    store = RedisRateLimitStore(FakeRedis())
+    allowed, wait, remaining = store.check("k", 60)
+    assert allowed is True and wait == 0.0 and remaining == 10.0
+    assert calls["script"] == _TOKEN_BUCKET_LUA
+
+
+def test_redis_store_uses_lua_deny():
+    from app.ratelimit import RedisRateLimitStore
+    class FakeRedis:
+        def eval(self, script, numkeys, key, *args):
+            return [0, 2.5, 0]
+    store = RedisRateLimitStore(FakeRedis())
+    allowed, wait, remaining = store.check("k", 60)
+    assert allowed is False and wait == 2.5 and remaining == 0.0
