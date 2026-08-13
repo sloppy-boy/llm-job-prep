@@ -1,9 +1,13 @@
 import asyncio
 import json
+import time
 from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
+from app import metrics
 from app.cache import cache_get, cache_set
+from app.config import settings
+from app.ratelimit import get_store
 from app.db.sessions import save_message
 from app.llm import chat as llm_chat
 from app.agents.nodes import gate_decision, build_writer_messages
@@ -73,6 +77,20 @@ async def _aiter_sync(gen):
 
 @router.post("/chat")
 async def chat(req: ChatRequest):
+    # 用户层限流：按 user_id 独立令牌桶（与全局 X-API-Key 限流叠加，双保险）
+    if settings.ratelimit_enabled:
+        allowed, wait, remaining = get_store().check(
+            f"user:{req.user_id}", settings.ratelimit_user_per_min)
+        if not allowed:
+            metrics.record_rejected("ratelimit")
+            reset = int(time.time()) + int(wait) + 1
+            return JSONResponse(
+                {"error": {"code": "RATE_LIMITED", "message": "请求过于频繁，请稍后重试"}},
+                status_code=429,
+                headers={"Retry-After": str(max(1, int(wait))),
+                         "X-RateLimit-Limit": str(settings.ratelimit_user_per_min),
+                         "X-RateLimit-Remaining": str(int(max(0, remaining))),
+                         "X-RateLimit-Reset": str(reset)})
     async def gen():
         yield _sse({"type": "thinking", "status": "正在识别问题类别..."})
         try:

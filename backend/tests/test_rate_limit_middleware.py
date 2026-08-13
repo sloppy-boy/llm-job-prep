@@ -38,3 +38,24 @@ def test_rate_limited_requests_recorded_in_metrics(monkeypatch):
     r = c.get("/api/v1/metrics", headers={"X-API-Key": "rl-test-key"})
     assert r.status_code == 429
     assert m.snapshot()["rejected"]["ratelimit"] >= 1
+
+
+def test_chat_per_user_rate_limit(monkeypatch):
+    monkeypatch.setattr(cfg.settings, "ratelimit_enabled", True)
+    monkeypatch.setattr(cfg.settings, "ratelimit_user_per_min", 2)
+    monkeypatch.setattr(cfg.settings, "api_key", "rl-user-key")
+    import app.api.chat as chat_mod
+    monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, h, uid: {
+        "question": q, "session_id": sid, "history": h or [],
+        "domain": "chitchat", "tool_results": [], "retrieved_chunks": []})
+    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: True)
+    monkeypatch.setattr(chat_mod, "llm_chat_stream", lambda m: iter([]))
+    c = TestClient(app)
+    body = {"session_id": "s1", "message": "hi", "user_id": "rl-u-1"}
+    for _ in range(2):
+        assert c.post("/api/v1/chat", json=body,
+                      headers={"X-API-Key": "rl-user-key"}).status_code == 200
+    r = c.post("/api/v1/chat", json=body, headers={"X-API-Key": "rl-user-key"})
+    assert r.status_code == 429
+    assert "RATE_LIMITED" in r.text
