@@ -1,3 +1,4 @@
+import hashlib
 import re
 import time
 from pathlib import Path
@@ -5,7 +6,8 @@ from pathlib import Path
 from app.config import settings
 from app.llm import chat as llm_chat
 from app.rag.chunker import chunk_markdown, read_frontmatter, is_draft, _extract_frontmatter
-from app.rag.retrieve import hybrid_search, rerank, get_store, invalidate_bm25
+from app.rag.embed import embed_texts
+from app.rag.retrieve import get_store, invalidate_bm25
 from app.rag.vector_store import VectorStore
 
 KB_ROOT = Path(__file__).resolve().parents[1] / "knowledge_base"
@@ -46,25 +48,30 @@ def _extract_title(body: str) -> str:
     return meta.get("title", "")
 
 
+def _already_exists(question: str) -> bool:
+    """知识库已存在高相似条目？用向量原始余弦（非归一化融合分）≥ 语义缓存阈值判定。"""
+    try:
+        vec = embed_texts([question])[0]
+        hits = get_store().search(vec, top_k=1)
+        return bool(hits) and hits[0].get("score", 0) >= settings.semantic_cache_threshold
+    except Exception:
+        return False
+
+
 def draft_doc(question: str, answer: str) -> dict:
     """把问答沉淀为 draft 草稿。防重 → LLM 提炼（失败回退模板）→ 写文件。"""
-    # 1) 防重：最高重排分 ≥ 语义缓存阈值视为已存在
-    try:
-        docs = hybrid_search(question, top_k=5)
-        reranked = rerank(question, docs)
-        if reranked and reranked[0].get("score", 0) >= settings.semantic_cache_threshold:
-            return {"status": "exists", "doc_id": "", "path": "",
-                    "title": "知识库已存在类似条目，跳过沉淀"}
-    except Exception:
-        pass
+    # 1) 防重：向量原始余弦 ≥ 语义缓存阈值视为已存在
+    if _already_exists(question):
+        return {"status": "exists", "doc_id": "", "path": "",
+                "title": "知识库已存在类似条目，跳过沉淀"}
     # 2) 生成文档
     try:
         body = _format_doc(question, answer)
     except Exception:
         body = _fallback_doc(question, answer)
-    # 3) 写文件（文件名即 doc_id，日期前缀保证可排序）
+    # 3) 写文件（文件名即 doc_id，日期前缀+问题短哈希保证可排序且唯一）
     BACKFILL_DIR.mkdir(parents=True, exist_ok=True)
-    fname = f"{time.strftime('%Y%m%d')}-{_slug(question)}.md"
+    fname = f"{time.strftime('%Y%m%d')}-{_slug(question)}-{hashlib.md5(question.encode()).hexdigest()[:6]}.md"
     path = BACKFILL_DIR / fname
     path.write_text(body, encoding="utf-8")
     return {"status": "draft", "doc_id": fname, "path": f"backfill/{fname}",
@@ -77,9 +84,15 @@ def approve_doc(doc_id: str) -> dict:
     if path.name != doc_id or path.parent != BACKFILL_DIR.resolve() or not path.exists():
         raise ValueError("无效的 doc_id")
     raw = path.read_text(encoding="utf-8")
-    if "status: draft" not in raw:
+    if not raw.startswith("---"):
         return {"status": "noop", "chunk_count": 0}
-    path.write_text(raw.replace("status: draft", "status: published"), encoding="utf-8")
+    parts = raw.split("---", 2)
+    if len(parts) < 3:
+        return {"status": "noop", "chunk_count": 0}
+    if not re.search(r"(?m)^status\s*:\s*draft\s*$", parts[1]):
+        return {"status": "noop", "chunk_count": 0}
+    new_frontmatter = re.sub(r"(?m)^status\s*:\s*draft\s*$", "status: published", parts[1])
+    path.write_text(f"---{new_frontmatter}---{parts[2]}", encoding="utf-8")
     chunks = chunk_markdown(path)
     get_store().add([c["text"] for c in chunks],
                     [{**c["metadata"], "text": c["text"]} for c in chunks])

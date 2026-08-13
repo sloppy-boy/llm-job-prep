@@ -29,8 +29,7 @@ def test_reindex_skips_drafts(kb_env, monkeypatch):
 
 
 def test_draft_doc_writes_file(kb_env, monkeypatch):
-    monkeypatch.setattr(kb_mod, "hybrid_search", lambda q, top_k=5: [])
-    monkeypatch.setattr(kb_mod, "rerank", lambda q, docs: [])
+    monkeypatch.setattr(kb_mod, "_already_exists", lambda q: False)
     monkeypatch.setattr(kb_mod, "_format_doc",
                         lambda q, a: "---\ntitle: 测试\ncategory: backfill\nstatus: draft\n---\n\n正文。")
     res = kb_mod.draft_doc("怎么开发票", "请提供发票抬头。")
@@ -39,16 +38,33 @@ def test_draft_doc_writes_file(kb_env, monkeypatch):
     assert (kb_mod.BACKFILL_DIR / res["doc_id"]).exists()
 
 
-def test_draft_doc_dedup_on_high_score(kb_env, monkeypatch):
-    monkeypatch.setattr(kb_mod, "hybrid_search", lambda q, top_k=5: [{"score": 0.99}])
-    monkeypatch.setattr(kb_mod, "rerank", lambda q, docs: [{"score": 0.99}])
-    res = kb_mod.draft_doc("怎么退货", "答案")
-    assert res["status"] == "exists"
+def test_draft_doc_dedup_on_high_cosine(kb_env, monkeypatch):
+    monkeypatch.setattr(kb_mod, "embed_texts", lambda q: [[0.1] * 4])
+    monkeypatch.setattr(kb_mod, "_format_doc",
+                        lambda q, a: "---\ntitle: T\ncategory: backfill\nstatus: draft\n---\n\n正文。")
+    class HighStore:
+        def search(self, vec, top_k=1): return [{"score": 0.95, "text": "x"}]
+    monkeypatch.setattr(kb_mod, "get_store", lambda: HighStore())
+    assert kb_mod.draft_doc("怎么退货", "a")["status"] == "exists"
+    class LowStore:
+        def search(self, vec, top_k=1): return [{"score": 0.5, "text": "x"}]
+    monkeypatch.setattr(kb_mod, "get_store", lambda: LowStore())
+    assert kb_mod.draft_doc("怎么退货", "a")["status"] == "draft"
+
+
+def test_draft_doc_unique_filename_for_same_slug(kb_env, monkeypatch):
+    monkeypatch.setattr(kb_mod, "_already_exists", lambda q: False)
+    monkeypatch.setattr(kb_mod, "_format_doc",
+                        lambda q, a: "---\ntitle: T\ncategory: backfill\nstatus: draft\n---\n\n正文。")
+    r1 = kb_mod.draft_doc("怎么开发票流程应该如何进行第一条", "a")
+    r2 = kb_mod.draft_doc("怎么开发票流程应该如何进行第二条", "b")
+    assert r1["doc_id"] != r2["doc_id"]
+    assert (kb_mod.BACKFILL_DIR / r1["doc_id"]).exists()
+    assert (kb_mod.BACKFILL_DIR / r2["doc_id"]).exists()
 
 
 def test_draft_doc_falls_back_on_llm_failure(kb_env, monkeypatch):
-    monkeypatch.setattr(kb_mod, "hybrid_search", lambda q, top_k=5: [])
-    monkeypatch.setattr(kb_mod, "rerank", lambda q, docs: [])
+    monkeypatch.setattr(kb_mod, "_already_exists", lambda q: False)
     def boom(q, a): raise RuntimeError("llm down")
     monkeypatch.setattr(kb_mod, "_format_doc", boom)
     res = kb_mod.draft_doc("怎么开发票", "答案")
@@ -56,8 +72,7 @@ def test_draft_doc_falls_back_on_llm_failure(kb_env, monkeypatch):
 
 
 def test_approve_publishes_and_ingests(kb_env, monkeypatch):
-    monkeypatch.setattr(kb_mod, "hybrid_search", lambda q, top_k=5: [])
-    monkeypatch.setattr(kb_mod, "rerank", lambda q, docs: [])
+    monkeypatch.setattr(kb_mod, "_already_exists", lambda q: False)
     monkeypatch.setattr(kb_mod, "_format_doc",
                         lambda q, a: "---\ntitle: T\ncategory: backfill\nstatus: draft\n---\n\n正文内容若干。")
     res = kb_mod.draft_doc("q", "a")
@@ -71,6 +86,22 @@ def test_approve_publishes_and_ingests(kb_env, monkeypatch):
     assert added["n"] >= 1
     raw = (kb_mod.BACKFILL_DIR / res["doc_id"]).read_text(encoding="utf-8")
     assert "status: published" in raw
+
+
+def test_approve_handles_noncanonical_status(kb_env, monkeypatch):
+    monkeypatch.setattr(kb_mod, "_already_exists", lambda q: False)
+    (kb_mod.BACKFILL_DIR).mkdir(exist_ok=True)
+    path = kb_mod.BACKFILL_DIR / "20260814-x.md"
+    path.write_text("---\ntitle: T\ncategory: backfill\nstatus:draft\n---\n\n正文内容若干。", encoding="utf-8")
+    added = {}
+    class FakeStore:
+        def add(self, texts, metadatas): added["n"] = len(texts)
+    monkeypatch.setattr(kb_mod, "get_store", lambda: FakeStore())
+    monkeypatch.setattr(kb_mod, "invalidate_bm25", lambda: None)
+    out = kb_mod.approve_doc("20260814-x.md")
+    assert out["status"] == "published"
+    assert added["n"] >= 1
+    assert "status: published" in path.read_text(encoding="utf-8")
 
 
 def test_approve_rejects_path_traversal(kb_env, monkeypatch):
