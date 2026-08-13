@@ -79,6 +79,7 @@
 **优化轮（2026-08-13）**：
 - **#1 数据源抽象 + 订单归属校验（完成）**：`data_source.py` 定义 `OrderDataSource` 契约 + `MockOrderDataSource`，`dispatch` 依赖注入（接真实 ERP 只写新实现替换）；订单加 `user_id` 归属，`get_order`/`create_refund` 校验越权（A 查 B 的订单 → 无权限兜底）；`ChatRequest` 加 `user_id`（默认 user-001）链路透传。54 pytest 全绿 + 端到端实测越权拦截
 - **限流（2026-08-14）**：令牌桶 + `RateLimitStore`（Redis Lua 原子/内存锁降级）；`RateLimitMiddleware` 全局按 Key + `/chat` 按 user_id 双层；429 带 `Retry-After`/`X-RateLimit-*` 头；metrics 拒绝计数；conftest 默认关闭避免污染既有用例。93 pytest 全绿。
+- **知识库治理 + 回填闭环（2026-08-14）**：Obsidian 管理 knowledge_base（热重索引 `POST /kb/reindex`，跳 draft）；稳定 ID（md5 path:page）修复增量摄入覆盖；SSE `human_handoff` → 转人工弹窗 → 人工回复 → LLM 提炼草稿 → 审核发布 → RAG 摄入 + BM25 刷新 → 下次命中；评分 5★ 自动沉淀草稿候选（消息表 meta 列判定）。**面试点**：审核 gate 控 RAG 摄入、badcase 回流 + 对话挖掘、LLM 提炼知识条目、路径穿越防护。
 - 待优化清单见 `docs/optimization-todo.md`（下一步：限流 → 可观测 → 评测扩充）；架构详解见 `docs/architecture.md`
 
 **如何运行（用户需在新终端操作，因 docker CLI 不在旧 PATH）**：
