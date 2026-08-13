@@ -91,3 +91,20 @@ def test_list_sessions_preview_is_latest_user_message(tmp_path, monkeypatch):
     assert rows[0]["session_id"] == "s-prev"
     assert rows[0]["preview"] == "我想申请七天无理由退货，请告诉我流程"[:30]
     assert "updated_at" in rows[0]
+
+
+def test_save_message_with_meta_and_get_last_round():
+    from app.db.sessions import save_message, get_last_round
+    sid = "s-meta-test"
+    save_message(sid, "user", "怎么开电子发票")
+    save_message(sid, "assistant", "请提供抬头", {"domain": "policy", "had_tools": False, "cached": False})
+    round_ = get_last_round(sid)
+    assert round_ == {"question": "怎么开电子发票", "answer": "请提供抬头",
+                      "meta": {"domain": "policy", "had_tools": False, "cached": False}}
+
+
+def test_get_last_round_returns_none_without_pair():
+    from app.db.sessions import save_message, get_last_round
+    sid = "s-meta-none"
+    save_message(sid, "user", "只有问题")
+    assert get_last_round(sid) is None
