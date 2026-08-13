@@ -3,15 +3,24 @@ import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ChatWindow from "@/components/ChatWindow";
 import { streamChat } from "@/lib/sse";
-import { fetchHistory, submitFeedback } from "@/lib/api";
+import { fetchHistory, submitFeedback, humanReply, backfill, approveBackfill } from "@/lib/api";
 
 // mock 网络相关模块：ChatWindow 依赖 streamChat（SSE）与 fetchHistory/submitFeedback（REST）。
 vi.mock("@/lib/sse", () => ({ streamChat: vi.fn() }));
-vi.mock("@/lib/api", () => ({ fetchHistory: vi.fn(), submitFeedback: vi.fn() }));
+vi.mock("@/lib/api", () => ({
+  fetchHistory: vi.fn(),
+  submitFeedback: vi.fn(),
+  humanReply: vi.fn(),
+  backfill: vi.fn(),
+  approveBackfill: vi.fn(),
+}));
 
 const mockedStreamChat = vi.mocked(streamChat);
 const mockedFetchHistory = vi.mocked(fetchHistory);
 const mockedSubmitFeedback = vi.mocked(submitFeedback);
+const mockedHumanReply = vi.mocked(humanReply);
+const mockedBackfill = vi.mocked(backfill);
+const mockedApproveBackfill = vi.mocked(approveBackfill);
 
 // 让 streamChat mock 捕获 handlers，测试再手动触发 onToken/onError/onDone
 function captureHandlers() {
@@ -114,5 +123,39 @@ describe("ChatWindow", () => {
     // 第二次调用的 user 消息文本与原来一致
     expect(mockedStreamChat.mock.calls[1][1]).toBe("订单到哪了");
     expect(mockedStreamChat).toHaveBeenLastCalledWith("s1", "订单到哪了", expect.any(Object));
+  });
+
+  it("收到 human_handoff 后显示转人工按钮", async () => {
+    const user = userEvent.setup();
+    const getHandlers = captureHandlers();
+    render(<ChatWindow sessionId="s1" onSources={vi.fn()} onThinking={vi.fn()} />);
+    await user.type(screen.getByPlaceholderText("输入问题…"), "怎么开电子发票");
+    await user.click(screen.getByRole("button", { name: "发送" }));
+    act(() => { getHandlers().onHandoff(); getHandlers().onDone(); });
+    expect(await screen.findByRole("button", { name: /转人工/ })).toBeInTheDocument();
+  });
+
+  it("转人工 → 回复 → 沉淀 → 发布 完整流程", async () => {
+    const user = userEvent.setup();
+    const getHandlers = captureHandlers();
+    mockedHumanReply.mockResolvedValue(true);
+    mockedBackfill.mockResolvedValue({
+      status: "draft", doc_id: "x.md", path: "backfill/x.md", title: "开票指南",
+    });
+    mockedApproveBackfill.mockResolvedValue(true);
+    render(<ChatWindow sessionId="s1" onSources={vi.fn()} onThinking={vi.fn()} />);
+    await user.type(screen.getByPlaceholderText("输入问题…"), "怎么开电子发票");
+    await user.click(screen.getByRole("button", { name: "发送" }));
+    act(() => { getHandlers().onHandoff(); getHandlers().onDone(); });
+    await user.click(await screen.findByRole("button", { name: /转人工/ }));
+    await user.type(screen.getByPlaceholderText("输入人工客服的回答…"), "请联系财务开具");
+    await user.click(screen.getByRole("button", { name: "回复" }));
+    expect(mockedHumanReply).toHaveBeenCalledWith("s1", "怎么开电子发票", "请联系财务开具");
+    expect(await screen.findByText(/（人工客服）请联系财务开具/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "沉淀" }));
+    expect(mockedBackfill).toHaveBeenCalledWith("怎么开电子发票", "请联系财务开具");
+    await user.click(screen.getByRole("button", { name: "确认发布" }));
+    expect(mockedApproveBackfill).toHaveBeenCalledWith("x.md");
+    expect(screen.getByText(/已发布/)).toBeInTheDocument();
   });
 });
