@@ -55,7 +55,7 @@
 
 ### 2.3 🔧 稳定 ID 修复（技术硬核）
 - 现状问题：`VectorStore.add()` 用 `enumerate` 自增 ID → **增量/重复摄入会覆盖已有 point**
-- 改法：chunker 携带 `path`，`PointStruct(id = hash(f"{path}:{page}"))`（内容寻址稳定 ID）
+- 改法：chunker 携带 `path`，`PointStruct(id = md5(f"{path}:{page}") % 2**64)`（内容寻址稳定 ID，**取模压回 Qdrant u64 点 id 范围**——128-bit md5 直接转 int 在 grpc 传输 `PointId.num` 会越界抛错）
   - 增量入库不碰撞
   - 同一文件重新摄入幂等：编辑后同 path+page → upsert 覆盖，不留孤儿
 - 面试点：内容寻址 vs 自增 ID，增量索引的幂等性

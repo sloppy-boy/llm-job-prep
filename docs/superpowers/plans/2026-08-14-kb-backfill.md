@@ -17,7 +17,7 @@
 - 前端测试：`cd frontend && npm test`；build：`cd frontend && npm run build`
 - **草稿（`status: draft`）不进**检索/BM25 语料/索引；approve 后才摄入
 - `doc_id` = 文件名（不带目录），approve 必须做路径穿越防护
-- 向量 ID = `md5(f"{path}:{page}")`（稳定内容寻址）
+- 向量 ID = `md5(f"{path}:{page}") % 2**64`（稳定内容寻址，压回 Qdrant u64 点 id 范围）
 - SSE 事件类型保持前端兼容：新增 `human_handoff`，其余 `thinking / token / card / sources / error / done` 不变
 - **改前端前**先读 `frontend/node_modules/next/dist/docs/` 相关指南（Next.js 16 有破坏性变更；本计划的前端改动全部沿用现有文件风格）
 - 自动沉淀失败**静默**（不影响评分闭环）；LLM 提炼失败**回退模板**（沉淀流程绝不中断）
@@ -173,6 +173,8 @@ def test_add_uses_stable_content_addressed_ids(monkeypatch):
     assert ids1[0] == ids2[0], "同 path+page 重入必须同 id（幂等覆盖）"
     assert ids1[1] != ids2[1], "不同 path 的 id 必须不同"
     assert ids1[0] != ids1[1], "同文件不同 page 的 id 必须不同"
+    for p in ids1 + ids2:
+        assert 0 <= p < 2**64, "Qdrant 点 id 必须落在 u64 范围"
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
@@ -182,13 +184,14 @@ Expected: FAIL — 旧实现 `add()` 用 `enumerate` 给 id，第二次 `add(["x
 
 - [ ] **Step 3: 实现**
 
-`backend/app/rag/vector_store.py` 顶部加 `import hashlib`，`add()` 改为稳定 ID:
+`backend/app/rag/vector_store.py` 顶部加 `import hashlib`，`add()` 改为稳定 ID（**md5 128-bit 取模压回 Qdrant u64 点 id 范围**）:
 ```python
     def add(self, texts: list[str], metadatas: list[dict]):
         vectors = embed_texts(texts)
         points = []
         for i, (v, m) in enumerate(zip(vectors, metadatas)):
-            stable = int(hashlib.md5(f"{m.get('path', '')}:{m.get('page', i)}".encode()).hexdigest(), 16)
+            digest = hashlib.md5(f"{m.get('path', '')}:{m.get('page', i)}".encode()).hexdigest()
+            stable = int(digest, 16) % (2**64)  # 128-bit md5 取模压回 u64
             points.append(PointStruct(id=stable, vector=v, payload=m))
         self.client.upsert(self.collection, points)
 ```
