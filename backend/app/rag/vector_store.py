@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
@@ -13,10 +14,22 @@ class VectorStore:
             local_dir = str(Path(__file__).resolve().parents[2] / "qdrant_local")
             self.client = QdrantClient(path=local_dir)
         self.collection = collection
-        if not self.client.collection_exists(collection):
+        self._ensure_collection(dim)
+
+    def _ensure_collection(self, dim=1024):
+        if not self.client.collection_exists(self.collection):
             self.client.create_collection(
-                collection,
+                self.collection,
                 vectors_config=VectorParams(size=dim, distance=Distance.COSINE))
+
+    def reset(self):
+        """清空并重建集合（重建 KB 前调用）。Qdrant 删除异步，轮询等待完成再重建。"""
+        if self.client.collection_exists(self.collection):
+            self.client.delete_collection(self.collection)
+            deadline = time.time() + 5
+            while time.time() < deadline and self.client.collection_exists(self.collection):
+                time.sleep(0.2)
+        self._ensure_collection()
 
     def add(self, texts: list[str], metadatas: list[dict]):
         vectors = embed_texts(texts)

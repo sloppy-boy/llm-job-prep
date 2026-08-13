@@ -13,7 +13,8 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-m3"
     rerank_model: str = "BAAI/bge-reranker-v2-m3"
     rerank_top_k: int = 3
-    max_review_rounds: int = 2
+    semantic_cache_threshold: float = 0.90
+    semantic_cache_max: int = 500
     api_key: str = "dev-local-key"
 
 settings = Settings()

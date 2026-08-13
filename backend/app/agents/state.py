@@ -8,6 +8,3 @@ class AgentState(TypedDict):
     retrieved_chunks: list
     tool_results: list
     draft_answer: str
-    review_comment: str
-    iteration: int
-    review_status: str

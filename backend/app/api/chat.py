@@ -1,3 +1,4 @@
+import asyncio
 import json
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -48,6 +49,28 @@ def run_front(question: str, session_id: str, history, user_id: str = "user-001"
 def llm_chat_stream(messages):
     return llm_chat(messages, stream=True)
 
+_blocking = asyncio.to_thread  # 间接层：可测"阻塞调用确实走线程池"，避免全局 patch to_thread
+
+_END = object()  # 生成器结束哨兵
+
+def _next_or_end(gen):
+    """在 worker 线程内取下一个 chunk；StopIteration 转哨兵，避免其穿越 await 边界被转成 RuntimeError。"""
+    try:
+        return next(gen)
+    except StopIteration:
+        return _END
+
+async def _aiter_sync(gen):
+    """把同步生成器桥接成 async 迭代：每 chunk 在 worker 线程 next()，不阻塞事件循环。
+
+    串行跨线程 next() 在 CPython GIL 下安全；结束用哨兵而非 StopIteration 信号。
+    """
+    while True:
+        item = await _blocking(_next_or_end, gen)
+        if item is _END:
+            return
+        yield item
+
 @router.post("/chat")
 async def chat(req: ChatRequest):
     async def gen():
@@ -55,19 +78,19 @@ async def chat(req: ChatRequest):
         try:
             # 语义缓存：精确命中直接返回缓存答案，跳过 LLM 全链路（省 token/降延迟）
             # 注意：cache_get 也在 try 内，命中/异常都不会逃逸 gen() 导致 500
-            cached = cache_get(req.message)
+            cached = await _blocking(cache_get, req.message)
             if cached:
                 yield _sse({"type": "thinking", "status": "⚡ 命中语义缓存，直接返回"})
                 yield _sse({"type": "token", "text": cached})
                 try:
-                    save_message(req.session_id, "user", req.message)
-                    save_message(req.session_id, "assistant", cached)
+                    await _blocking(save_message, req.session_id, "user", req.message)
+                    await _blocking(save_message, req.session_id, "assistant", cached)
                 except Exception:
                     pass  # 持久化失败不影响 SSE 返回
                 yield _sse({"type": "done"})
                 return
             # 前置段同步执行：路由→工具→检索，拿到领域/工具结果/检索切片后闸门判定
-            st = run_front(req.message, req.session_id, req.history, req.user_id)
+            st = await _blocking(run_front, req.message, req.session_id, req.history, req.user_id)
             for tool in st.get("tool_results", []):
                 kind = _kind_of(tool)
                 if kind:
@@ -76,9 +99,9 @@ async def chat(req: ChatRequest):
             if gate_decision(st):
                 # 真流式：writer 逐 token 增量推送，前端边收边渲染
                 msgs = build_writer_messages(st)
-                stream_resp = llm_chat_stream(msgs)
+                stream_resp = await _blocking(llm_chat_stream, msgs)
                 parts = []
-                for chunk in stream_resp:
+                async for chunk in _aiter_sync(stream_resp):
                     if not chunk.choices:
                         continue  # include_usage 的末块 choices 为空，跳过
                     piece = (chunk.choices[0].delta.content or "")
@@ -89,16 +112,16 @@ async def chat(req: ChatRequest):
             else:
                 # 资料不足兜底：整句一次返回（诚实话术，无需流式）
                 msgs = build_writer_messages(st)
-                answer = llm_chat(msgs, stream=False) or ""
+                answer = await _blocking(llm_chat, msgs, False) or ""
                 yield _sse({"type": "token", "text": answer})
             # 仅缓存确定性问答（无工具结果）；订单/物流/退款结果状态会变化，不缓存避免过时
             if not st.get("tool_results"):
-                cache_set(req.message, answer)
+                await _blocking(cache_set, req.message, answer)
             yield _sse({"type": "sources", "items": st.get("retrieved_chunks", [])})
             # 消息持久化：失败仅吞掉，绝不让 DB 写入异常破坏 SSE 流程
             try:
-                save_message(req.session_id, "user", req.message)
-                save_message(req.session_id, "assistant", answer)
+                await _blocking(save_message, req.session_id, "user", req.message)
+                await _blocking(save_message, req.session_id, "assistant", answer)
             except Exception:
                 pass
         except Exception:

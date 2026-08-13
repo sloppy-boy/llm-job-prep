@@ -10,15 +10,11 @@
 
 ### P0 技术硬伤（建议优先，面试追问风险高）
 
-- [ ] **事件循环阻塞** — 现状：`run_front` 与流式 writer 同步阻塞在 async `gen()` 里，单线程下并发请求互相卡。
-      优化：`asyncio.to_thread` 跑前置段；LLM 客户端改异步 / 流式用线程池。价值：并发正确性。工作量：1-2 天。
-- [ ] **分块策略粗糙** — 现状：字符级滑动窗口（400/50），可能从表格/句子中间切断。
-      优化：按 markdown 结构（标题/段落/表格行）感知分块；或用评测集做分块策略对比实验。
-- [ ] **检索加权简化** — 现状：`_keyword_boost` 是字符命中启发式（非标准 BM25）。
-      优化：换 `rank_bm25` 做真 BM25 加权；或接 Elasticsearch 做关键词检索。价值：检索精度。
-- [ ] **缓存是精确匹配** — 现状：`md5(question)`，语义相近的问题不命中。
-      优化：向量相似度语义缓存（embed query → Qdrant 找相似已缓存问题 → 命中）。价值：缓存命中率、成本。
-- [ ] **死代码清理** — `agents/state.py` 的 `review_comment`/`iteration`/`review_status` 死字段、`config.py` 的 `max_review_rounds` 死配置（打回循环已移除）。
+- [x] **事件循环阻塞** — 已修（2026-08-14）：`_blocking = asyncio.to_thread` 卸载 run_front/cache/save_message/非流式 LLM；流式用 `_aiter_sync` 每 chunk 线程内 next() 桥接，事件循环不再被占用。
+- [x] **分块策略粗糙** — 已修（2026-08-14）：结构感知分块（标题/段落/表格块/代码围栏），超长段落按句拆、超长表格按行拆+重复表头；`VectorStore.reset()` 支持重建前清空。
+- [x] **检索加权简化** — 已修（2026-08-14）：`rank_bm25` + `jieba` 整库 BM25 索引，min-max 归一化后 0.6*vec + 0.4*bm25 融合；全零/异常回退纯向量。
+- [x] **缓存是精确匹配** — 已修（2026-08-14）：精确命中短路 + 内存语义索引余弦扫描（阈值 0.90 可配，上限 500 条淘汰最旧），embed 失败不崩。
+- [x] **死代码清理** — 已修（2026-08-14）：`state.py` 删 `review_comment`/`iteration`/`review_status`，`config.py` 删 `max_review_rounds`。
 
 ### P1 功能增强（面试讲深度）
 
