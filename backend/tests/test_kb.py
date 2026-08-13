@@ -135,3 +135,13 @@ def test_draft_doc_prepends_frontmatter_when_llm_omits(kb_env, monkeypatch):
     written = (kb_mod.BACKFILL_DIR / res["doc_id"]).read_text(encoding="utf-8")
     assert written.startswith("---")
     assert "status: draft" in written
+
+
+def test_draft_doc_title_with_frontmatter_delimiter_does_not_bypass_gate(kb_env, monkeypatch):
+    monkeypatch.setattr(kb_mod, "_already_exists", lambda q: False)
+    monkeypatch.setattr(kb_mod, "_format_doc", lambda q, a: "正文无 frontmatter。")
+    # 问题前 20 字符含 ---，且 LLM 未提供 title → 旧实现会把 --- 注入手拼 frontmatter 导致 is_draft False
+    res = kb_mod.draft_doc("退款---说明怎么操作", "答案")
+    written = (kb_mod.BACKFILL_DIR / res["doc_id"]).read_text(encoding="utf-8")
+    assert "status: draft" in written
+    assert kb_mod.is_draft(kb_mod.BACKFILL_DIR / res["doc_id"]) is True

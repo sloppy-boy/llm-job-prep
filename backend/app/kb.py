@@ -51,7 +51,7 @@ def _extract_title(body: str) -> str:
 def _ensure_draft_frontmatter(body: str, question: str) -> str:
     """写盘前剥离既有 frontmatter 并重建为 status: draft，确保任何 LLM 输出都不能绕过审核 gate。"""
     meta, content = _extract_frontmatter(body)
-    title = meta.get("title") or question[:20]
+    title = (meta.get("title") or question[:20]).replace("---", "—").replace("\n", " ").strip()
     return (f"---\ntitle: {title}\ncategory: backfill\nstatus: draft\n---\n\n{content.strip()}\n")
 
 
