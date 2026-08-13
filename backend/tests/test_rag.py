@@ -82,3 +82,15 @@ def test_load_corpus_skips_drafts(monkeypatch, tmp_path):
     texts = r._load_corpus()
     assert any("正式内容" in t for t in texts)
     assert not any("草稿内容" in t for t in texts)
+
+
+def test_invalidate_bm25_resets_cache(monkeypatch, tmp_path):
+    import app.rag.retrieve as r
+    (tmp_path / "a.md").write_text("正式内容若干。", encoding="utf-8")
+    monkeypatch.setattr(r, "_KB_ROOT", tmp_path)
+    monkeypatch.setattr(r, "_tokenize", lambda t: [t])
+    r._bm25 = ("built", {})  # 模拟已构建
+    r.invalidate_bm25()
+    assert r._bm25 is None
+    bm25 = r._get_bm25()
+    assert bm25 is not None  # 懒重建成功

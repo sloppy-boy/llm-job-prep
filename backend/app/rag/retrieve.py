@@ -51,6 +51,11 @@ def _get_bm25() -> tuple[BM25Okapi, dict] | None:
                     _bm25 = None  # 语料不可用则不启用 BM25
     return _bm25
 
+def invalidate_bm25() -> None:
+    """语料变化后调用：置空缓存，下次 _get_bm25 懒重建（回填发布/重索引后刷新）。"""
+    global _bm25
+    _bm25 = None
+
 def _norm(vals: list[float]) -> list[float]:
     """min-max 归一化到 [0,1]；全等（单候选）时给 0.5 避免除零。"""
     lo, hi = min(vals), max(vals)
