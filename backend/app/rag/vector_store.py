@@ -1,3 +1,4 @@
+import hashlib
 import time
 from pathlib import Path
 from qdrant_client import QdrantClient
@@ -33,8 +34,10 @@ class VectorStore:
 
     def add(self, texts: list[str], metadatas: list[dict]):
         vectors = embed_texts(texts)
-        points = [PointStruct(id=i, vector=v, payload=m)
-                  for i, (v, m) in enumerate(zip(vectors, metadatas))]
+        points = []
+        for i, (v, m) in enumerate(zip(vectors, metadatas)):
+            stable = int(hashlib.md5(f"{m.get('path', '')}:{m.get('page', i)}".encode()).hexdigest(), 16)
+            points.append(PointStruct(id=stable, vector=v, payload=m))
         self.client.upsert(self.collection, points)
 
     def search(self, vector: list[float], top_k=20) -> list[dict]:
