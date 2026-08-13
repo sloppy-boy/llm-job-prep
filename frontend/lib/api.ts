@@ -30,3 +30,49 @@ export async function submitFeedback(sessionId: string, rating: number): Promise
     return false;
   }
 }
+
+// ---- 知识库回填闭环：人工回复 → 沉淀草稿 → 审批发布 ----
+
+export type BackfillResult = { status: string; doc_id: string; path: string; title: string };
+
+// 提交人工客服回复：POST /api/v1/sessions/{id}/human-reply，成功返回 true
+export async function humanReply(sessionId: string, question: string, answer: string): Promise<boolean> {
+  try {
+    const r = await fetch(`/api/v1/sessions/${sessionId}/human-reply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": API_KEY },
+      body: JSON.stringify({ question, answer }),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+// 沉淀草稿：POST /api/v1/kb/backfill，成功返回草稿信息，失败返回 null
+export async function backfill(question: string, answer: string): Promise<BackfillResult | null> {
+  try {
+    const r = await fetch("/api/v1/kb/backfill", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": API_KEY },
+      body: JSON.stringify({ question, answer }),
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
+// 审批发布草稿：POST /api/v1/kb/backfill/{docId}/approve，成功返回 true
+export async function approveBackfill(docId: string): Promise<boolean> {
+  try {
+    const r = await fetch(`/api/v1/kb/backfill/${encodeURIComponent(docId)}/approve`, {
+      method: "POST",
+      headers: { "X-API-Key": API_KEY },
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}

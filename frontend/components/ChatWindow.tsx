@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import MessageCard from "./MessageCard";
 import { streamChat, type ChatMessage } from "@/lib/sse";
-import { fetchHistory, submitFeedback } from "@/lib/api";
+import { fetchHistory, submitFeedback, humanReply, backfill, approveBackfill } from "@/lib/api";
 
 const SUGGESTIONS = ["怎么申请退货？", "订单到哪了？", "退款多久到账？"];
 
@@ -26,6 +26,17 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
   const sessionRef = useRef(sessionId);
   // 评分提交进行中标记：await 期间屏蔽重复点击，防止双击并发 POST
   const submittingRef = useRef(false);
+  // 最近一次提问文本，供转人工弹窗在 human_handoff 回调里补全「用户问题」
+  const lastQuestionRef = useRef("");
+  // 转人工弹窗状态：open 是否打开；question/answer 用户问题与人工回答；
+  // step 阶段流转 reply(回复) → drafted(已沉淀草稿) → approved(已发布)；
+  // draft 为 backfill 返回的草稿元信息；error 为各步失败提示
+  const [handoff, setHandoff] = useState<{
+    open: boolean; question: string; answer: string;
+    step: "reply" | "drafted" | "approved";
+    draft?: { doc_id: string; path: string; title: string };
+    error?: string;
+  }>({ open: false, question: "", answer: "", step: "reply" });
 
   // 评分点击：先提交后端，成功才落本地 rating（此后禁用）；失败可重试并短暂提示
   async function rate(n: number) {
@@ -40,6 +51,41 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
       setRatingError(true);
       setTimeout(() => setRatingError(false), 3000);
     }
+  }
+
+  // 转人工流程第一步：提交人工客服回复。成功后追加一条「（人工客服）」消息并进入沉淀阶段。
+  async function doHumanReply() {
+    const a = handoff.answer.trim();
+    if (!a || busy) return;
+    setBusy(true);
+    const ok = await humanReply(sessionId, handoff.question, a);
+    setBusy(false);
+    if (!ok) { setHandoff((h) => ({ ...h, error: "提交失败" })); return; }
+    setMessages((ms) => [...ms, { role: "assistant", content: `（人工客服）${a}`, human: true }]);
+    setHandoff((h) => ({ ...h, answer: a, step: "drafted", error: undefined }));
+  }
+
+  // 转人工流程第二步：沉淀为知识库草稿。exists 表示知识库已有类似条目，给出提示。
+  async function doBackfill() {
+    setBusy(true);
+    const d = await backfill(handoff.question, handoff.answer);
+    setBusy(false);
+    if (!d || d.status === "exists") {
+      setHandoff((h) => ({ ...h, error: d?.status === "exists" ? "知识库已存在类似条目" : "沉淀失败" }));
+      return;
+    }
+    setHandoff((h) => ({ ...h, draft: d, error: undefined }));
+  }
+
+  // 转人工流程第三步：审批发布草稿，成功后短暂显示已发布再自动关闭弹窗。
+  async function doApprove() {
+    if (!handoff.draft) return;
+    setBusy(true);
+    const ok = await approveBackfill(handoff.draft.doc_id);
+    setBusy(false);
+    if (!ok) { setHandoff((h) => ({ ...h, error: "发布失败" })); return; }
+    setHandoff((h) => ({ ...h, step: "approved", error: undefined }));
+    setTimeout(() => setHandoff((h) => ({ ...h, open: false })), 2000);
   }
 
   // 新消息/流式 token 到达时，滚动容器自动贴底，避免内容多了要手动下滑才能看到回复
@@ -73,6 +119,7 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
   function send(text?: string) {
     const userText = (text ?? input).trim();
     if (!userText || busy) return;
+    lastQuestionRef.current = userText;
     setInput(""); setBusy(true); setRating(null); setRatingError(false);
     setMessages((ms) => [...ms, { role: "user", content: userText }, { role: "assistant", content: "", cards: [], retryText: userText, failed: false }]);
     onThinking("正在识别问题类别...");
@@ -108,6 +155,18 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
       onSources: (items) => {
         if (sessionRef.current !== sessionId) return;
         onSources(items);
+      },
+      onHandoff: () => {
+        if (sessionRef.current !== sessionId) return;
+        setMessages((ms) => {
+          const next = [...ms];
+          const i = next.length - 1;
+          if (i >= 0 && next[i].role === "assistant") next[i] = { ...next[i], handoff: true };
+          return next;
+        });
+        // 整体复位弹窗状态（回答清空、step 回 reply、清 error、清 draft），
+        // 保证同会话第二次收到 human_handoff 时从回复步骤干净起步，而非停留在 approved/drafted。
+        setHandoff({ open: false, question: lastQuestionRef.current, answer: "", step: "reply", error: undefined });
       },
       onError: (msg) => {
         if (sessionRef.current !== sessionId) return;
@@ -177,6 +236,12 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
                 🔄 重试
               </button>
             )}
+            {m.role === "assistant" && m.handoff && !handoff.open && (
+              <button onClick={() => setHandoff((h) => ({ ...h, open: true }))}
+                      className="block ml-2 mt-1 text-xs border rounded px-2 py-1 text-amber-700 hover:bg-amber-50">
+                🤝 转人工
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -199,6 +264,54 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
             ? <>本次解答满意吗？{[1,2,3,4,5].map((n) => <button key={n} className="mx-0.5 hover:scale-110" onClick={() => rate(n)}>{n}⭐</button>)}</>
             : "感谢评价！"}
           {ratingError && <span className="ml-2 text-red-500">提交失败</span>}
+        </div>
+      )}
+      {handoff.open && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50"
+             onClick={() => setHandoff((h) => ({ ...h, open: false }))}>
+          <div className="bg-white rounded-lg shadow-lg p-4 w-96 max-w-[90vw]"
+               onClick={(e) => e.stopPropagation()}>
+            {handoff.step === "reply" && (
+              <>
+                <h3 className="font-bold mb-2">🤝 人工客服（模拟）</h3>
+                <p className="text-sm text-gray-600 mb-2">用户问题：{handoff.question}</p>
+                <textarea className="border rounded w-full p-2 text-sm" rows={4}
+                          placeholder="输入人工客服的回答…" value={handoff.answer}
+                          onChange={(e) => setHandoff((h) => ({ ...h, answer: e.target.value }))} />
+                {handoff.error && <p className="text-red-500 text-xs">{handoff.error}</p>}
+                <div className="flex gap-2 mt-2 justify-end">
+                  <button className="border rounded px-3 py-1 text-sm"
+                          onClick={() => setHandoff((h) => ({ ...h, open: false }))}>取消</button>
+                  <button className="bg-blue-500 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
+                          disabled={busy || !handoff.answer.trim()} onClick={doHumanReply}>回复</button>
+                </div>
+              </>
+            )}
+            {handoff.step === "drafted" && (
+              <>
+                <h3 className="font-bold mb-2">📥 沉淀到知识库</h3>
+                {handoff.error && <p className="text-red-500 text-xs">{handoff.error}</p>}
+                {!handoff.draft ? (
+                  <button className="bg-green-600 text-white px-3 py-1 rounded text-sm"
+                          onClick={doBackfill}>沉淀</button>
+                ) : (
+                  <>
+                    <p className="text-sm text-gray-600 mb-2">已生成草稿：{handoff.draft.title}</p>
+                    <p className="text-xs text-gray-400 mb-2">路径：{handoff.draft.path}</p>
+                    <div className="flex gap-2 justify-end">
+                      <button className="border rounded px-3 py-1 text-sm"
+                              onClick={() => setHandoff((h) => ({ ...h, open: false }))}>关闭</button>
+                      <button className="bg-green-600 text-white px-3 py-1 rounded text-sm"
+                              onClick={doApprove}>确认发布</button>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+            {handoff.step === "approved" && (
+              <p className="text-green-600 font-bold">✅ 已发布，下次命中知识库</p>
+            )}
+          </div>
         </div>
       )}
     </div>

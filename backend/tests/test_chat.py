@@ -213,3 +213,30 @@ def test_blocking_calls_go_through_thread_pool(monkeypatch):
     assert r.status_code == 200
     for name in ("fake_cache_get", "fake_front", "fake_llm_chat", "cache_set", "save_message"):
         assert name in seen, f"{name} 应走线程池"
+
+
+def test_chat_emits_human_handoff_on_gate_fail(monkeypatch):
+    import app.api.chat as chat_mod
+    monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, h, uid: {
+        "question": q, "session_id": sid, "history": h or [],
+        "domain": "policy", "tool_results": [], "retrieved_chunks": []})
+    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: False)
+    monkeypatch.setattr(chat_mod, "llm_chat", lambda msgs, stream=False: "暂时没找到相关说明，可转人工处理。")
+    r = _post("怎么开电子发票")
+    assert "human_handoff" in r.text
+
+
+def test_chat_saves_meta_with_assistant_message(monkeypatch):
+    import app.api.chat as chat_mod
+    saved = []
+    monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, h, uid: {
+        "question": q, "session_id": sid, "history": h or [],
+        "domain": "policy", "tool_results": [], "retrieved_chunks": []})
+    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: False)
+    monkeypatch.setattr(chat_mod, "llm_chat", lambda msgs, stream=False: "答案A")
+    monkeypatch.setattr(chat_mod, "save_message",
+                        lambda sid, role, content, meta=None: saved.append((role, meta)))
+    r = _post("怎么退货")
+    assert ("assistant", {"domain": "policy", "had_tools": False, "cached": False}) in saved

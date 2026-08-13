@@ -1,12 +1,37 @@
+import json
+
 from app.db.models import SessionLocal, Message
 
-def save_message(session_id: str, role: str, content: str) -> None:
+def save_message(session_id: str, role: str, content: str, meta: dict | None = None) -> None:
     db = SessionLocal()
     try:
-        db.add(Message(session_id=session_id, role=role, content=content))
+        db.add(Message(session_id=session_id, role=role, content=content,
+                       meta=json.dumps(meta, ensure_ascii=False) if meta else None))
         db.commit()
     finally:
         db.close()
+
+
+def get_last_round(session_id: str) -> dict | None:
+    """最近一轮 user→assistant 对 + assistant 的 meta（自动沉淀判定依据）。无完整轮次返回 None。"""
+    with SessionLocal() as db:
+        rows = db.query(Message).filter_by(session_id=session_id)\
+                .order_by(Message.id.asc()).all()
+    last = None
+    pending_q = None
+    for m in rows:
+        if m.role == "user":
+            pending_q = m.content
+        elif m.role == "assistant" and pending_q is not None:
+            meta = {}
+            if m.meta:
+                try:
+                    meta = json.loads(m.meta)
+                except Exception:
+                    meta = {}
+            last = {"question": pending_q, "answer": m.content, "meta": meta}
+            pending_q = None  # 只保留最近一对
+    return last
 
 def get_history(session_id: str, limit: int = 10) -> list[dict]:
     db = SessionLocal()

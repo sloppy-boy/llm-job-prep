@@ -7,6 +7,10 @@ export type ChatMessage = {
   failed?: boolean;
   /** 失败时记录对应的用户消息文本，供重试时重新发送 */
   retryText?: string;
+  /** 该条 assistant 回答是否触发转人工（human_handoff 事件后置 true，用于显示转人工按钮） */
+  handoff?: boolean;
+  /** 该条消息是否由人工客服回复（转人工流程中追加） */
+  human?: boolean;
 };
 
 // 服务间认证 Key：dev 默认 dev-local-key，生产通过 NEXT_PUBLIC_API_KEY 环境变量配置（构建期内联）
@@ -25,6 +29,8 @@ export async function streamChat(
     onToken: (t: string) => void;
     onCard: (c: SSECard) => void;
     onSources: (items: { title: string; category: string }[]) => void;
+    /** 收到 human_handoff 事件时回调；可选以兼容仅做事件解析的调用方 */
+    onHandoff?: () => void;
     onDone: () => void;
     onError: (msg: string) => void;
   }
@@ -81,6 +87,7 @@ export async function streamChat(
           }
           else if (evt.type === "card") handlers.onCard({ kind: evt.kind, data: evt.data });
           else if (evt.type === "sources") handlers.onSources(evt.items);
+          else if (evt.type === "human_handoff") handlers.onHandoff?.();
           else if (evt.type === "error") handlers.onError(evt.message ?? "服务异常");
           else if (evt.type === "done") handlers.onDone();
         }
