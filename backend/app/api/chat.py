@@ -105,7 +105,8 @@ async def chat(req: ChatRequest):
                 yield _sse({"type": "token", "text": cached})
                 try:
                     await _blocking(save_message, req.session_id, "user", req.message)
-                    await _blocking(save_message, req.session_id, "assistant", cached)
+                    await _blocking(save_message, req.session_id, "assistant", cached,
+                                    {"domain": None, "had_tools": False, "cached": True})
                 except Exception:
                     pass  # 持久化失败不影响 SSE 返回
                 yield _sse({"type": "done"})
@@ -132,6 +133,7 @@ async def chat(req: ChatRequest):
                 answer = "".join(parts)
             else:
                 # 资料不足兜底：整句一次返回（诚实话术，无需流式）
+                yield _sse({"type": "human_handoff"})
                 msgs = build_writer_messages(st)
                 answer = await _blocking(llm_chat, msgs, False) or ""
                 yield _sse({"type": "token", "text": answer})
@@ -142,7 +144,10 @@ async def chat(req: ChatRequest):
             # 消息持久化：失败仅吞掉，绝不让 DB 写入异常破坏 SSE 流程
             try:
                 await _blocking(save_message, req.session_id, "user", req.message)
-                await _blocking(save_message, req.session_id, "assistant", answer)
+                await _blocking(save_message, req.session_id, "assistant", answer,
+                                {"domain": st.get("domain"),
+                                 "had_tools": bool(st.get("tool_results")),
+                                 "cached": False})
             except Exception:
                 pass
         except Exception:
