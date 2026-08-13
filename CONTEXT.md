@@ -78,9 +78,11 @@
 
 **优化轮（2026-08-13）**：
 - **#1 数据源抽象 + 订单归属校验（完成）**：`data_source.py` 定义 `OrderDataSource` 契约 + `MockOrderDataSource`，`dispatch` 依赖注入（接真实 ERP 只写新实现替换）；订单加 `user_id` 归属，`get_order`/`create_refund` 校验越权（A 查 B 的订单 → 无权限兜底）；`ChatRequest` 加 `user_id`（默认 user-001）链路透传。54 pytest 全绿 + 端到端实测越权拦截
-- **限流（2026-08-14）**：令牌桶 + `RateLimitStore`（Redis Lua 原子/内存锁降级）；`RateLimitMiddleware` 全局按 Key + `/chat` 按 user_id 双层；429 带 `Retry-After`/`X-RateLimit-*` 头；metrics 拒绝计数；conftest 默认关闭避免污染既有用例。93 pytest 全绿。
-- **知识库治理 + 回填闭环（2026-08-14）**：Obsidian 管理 knowledge_base（热重索引 `POST /kb/reindex`，跳 draft）；稳定 ID（md5 path:page）修复增量摄入覆盖；SSE `human_handoff` → 转人工弹窗 → 人工回复 → LLM 提炼草稿 → 审核发布 → RAG 摄入 + BM25 刷新 → 下次命中；评分 5★ 自动沉淀草稿候选（消息表 meta 列判定）。**面试点**：审核 gate 控 RAG 摄入、badcase 回流 + 对话挖掘、LLM 提炼知识条目、路径穿越防护。
-- 待优化清单见 `docs/optimization-todo.md`（下一步：限流 → 可观测 → 评测扩充）；架构详解见 `docs/architecture.md`
+- **限流（2026-08-14）**：令牌桶 + `RateLimitStore`（Redis Lua 原子/内存锁降级）；`RateLimitMiddleware` 全局按 Key + `/chat` 按 user_id 双层；429 带 `Retry-After`/`X-RateLimit-*` 头；metrics 拒绝计数；conftest 默认关闭避免污染既有用例。
+- **知识库治理 + 回填闭环（2026-08-14）**：Obsidian 管理 knowledge_base（热重索引 `POST /kb/reindex`，跳 draft；`backend/knowledge_base/README.md` 使用说明）；稳定 ID（`md5(path:page) % 2**64`）修复增量摄入覆盖；SSE `human_handoff` → 转人工弹窗 → 人工回复 → LLM 提炼草稿 → 审核发布 → RAG 摄入 + BM25 刷新 → 下次命中；评分 5★ 自动沉淀草稿候选（消息表 meta 列判定）。**面试点**：审核 gate 控 RAG 摄入（写盘强制 draft、防 `---` 注入绕过）、badcase 回流 + 对话挖掘、LLM 提炼知识条目、路径穿越防护、内容寻址 ID 幂等。
+- **优化轮 2 最终状态**：后端 **125 pytest** + 前端 **19 vitest** + build 全绿（P0 修复 80 → 加限流 95 → 加回填 125）
+- 待优化清单见 `docs/optimization-todo.md`（下一步：**可观测完善（Prometheus + 结构化日志）→ 评测集扩充 + CI 自动跑评测**）；架构详解见 `docs/architecture.md`
+- ⚠️ **待用户实测**：真实 LLM 端到端（DeepSeek/SiliconFlow Key 就绪后跑通「问知识库没有的问题 → 转人工 → 回复 → 沉淀 → 发布 → 重问命中」闭环）、Docker Compose 一键起全栈、配 GitHub 远端后推真实 PR（限流 + 回填两个 merge 已有本地演练）
 
 **如何运行（用户需在新终端操作，因 docker CLI 不在旧 PATH）**：
 ```bash
