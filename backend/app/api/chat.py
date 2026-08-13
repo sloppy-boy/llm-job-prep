@@ -79,8 +79,11 @@ async def _aiter_sync(gen):
 async def chat(req: ChatRequest):
     # 用户层限流：按 user_id 独立令牌桶（与全局 X-API-Key 限流叠加，双保险）
     if settings.ratelimit_enabled:
-        allowed, wait, remaining = get_store().check(
-            f"user:{req.user_id}", settings.ratelimit_user_per_min)
+        try:
+            allowed, wait, remaining = get_store().check(
+                f"user:{req.user_id}", settings.ratelimit_user_per_min)
+        except Exception:
+            allowed, wait, remaining = True, 0.0, 0  # 限流器故障失败开放，可用性优先
         if not allowed:
             metrics.record_rejected("ratelimit")
             reset = int(time.time()) + int(wait) + 1

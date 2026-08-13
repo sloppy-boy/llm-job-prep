@@ -36,6 +36,12 @@ def test_bucket_capacity_is_burst_limit():
     assert b.consume()[0] is False
 
 
+def test_bucket_zero_rate_rejects_without_division_error():
+    b = TokenBucket(rate=0.0, capacity=0)
+    ok, wait, remaining = b.consume()
+    assert ok is False and wait == 0.0 and remaining == 0.0
+
+
 def test_memory_store_separates_keys():
     s = MemoryRateLimitStore()
     for _ in range(3):

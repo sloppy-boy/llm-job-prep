@@ -59,3 +59,24 @@ def test_chat_per_user_rate_limit(monkeypatch):
     r = c.post("/api/v1/chat", json=body, headers={"X-API-Key": "rl-user-key"})
     assert r.status_code == 429
     assert "RATE_LIMITED" in r.text
+
+
+def test_chat_user_limit_fails_open_on_store_error(monkeypatch):
+    import app.config as cfg
+    import app.api.chat as chat_mod
+    monkeypatch.setattr(cfg.settings, "ratelimit_enabled", True)
+    monkeypatch.setattr(cfg.settings, "ratelimit_user_per_min", 30)
+    monkeypatch.setattr(cfg.settings, "api_key", "rl-failopen-key")
+    class BoomStore:
+        def check(self, key, per_min): raise RuntimeError("store down")
+    monkeypatch.setattr(chat_mod, "get_store", lambda: BoomStore())
+    monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, h, uid: {
+        "question": q, "session_id": sid, "history": h or [],
+        "domain": "chitchat", "tool_results": [], "retrieved_chunks": []})
+    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: True)
+    monkeypatch.setattr(chat_mod, "llm_chat_stream", lambda m: iter([]))
+    c = TestClient(app)
+    r = c.post("/api/v1/chat", json={"session_id": "s1", "message": "hi", "user_id": "u1"},
+               headers={"X-API-Key": "rl-failopen-key"})
+    assert r.status_code == 200  # 限流器故障 → 放行，不 500

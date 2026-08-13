@@ -14,14 +14,14 @@ class TokenBucket:
         self._last = time.monotonic()
 
     def consume(self, n: int = 1) -> tuple[bool, float, float]:
-        """返回 (是否放行, 需等待秒数, 剩余 token)。"""
+        """返回 (是否放行, 需等待秒数, 剩余 token)。rate<=0 时拒绝且 wait=0（避免除零）。"""
         now = time.monotonic()
         self._tokens = min(self.capacity, self._tokens + (now - self._last) * self.rate)
         self._last = now
         if self._tokens >= n:
             self._tokens -= n
             return True, 0.0, self._tokens
-        wait = (n - self._tokens) / self.rate
+        wait = (n - self._tokens) / self.rate if self.rate > 0 else 0.0
         return False, wait, self._tokens
 
 
