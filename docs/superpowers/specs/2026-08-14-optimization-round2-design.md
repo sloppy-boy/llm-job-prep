@@ -86,7 +86,7 @@
 | `POST /api/v1/kb/backfill/{doc_id}/approve` | 改 frontmatter `draft → published` → 分块 → 向量入库（稳定 ID）→ `invalidate_bm25()` |
 | `GET /api/v1/kb/backfill/pending` | 待审核草稿列表（含自动沉淀来源） |
 
-**入库前防重**：backfill 前先 `hybrid_search` 一次，最高重排分 `score ≥ 0.90`（复用语义缓存阈值）→ 判定已存在 → 返回「知识库已存在类似条目」，拒绝重复沉淀。
+**入库前防重**：backfill 前用**向量原始余弦**判定（`embed_texts` → `store.search(top_k=1)` 的原始 COSINE 分 `≥ 0.90`，复用语义缓存阈值）→ 已存在则返回「知识库已存在类似条目」，拒绝重复沉淀。**注意**：不能用 `hybrid_search` 的 min-max 归一化融合分做阈值——BM25 命中时 top 融合分恒为 1.0，会导致售后问题几乎全部误判 exists（2026-08-14 修复记录）。
 
 **SSE 信号**：`/chat` 里 `gate_decision` 判定资料不足时，流里多发 `{"type":"human_handoff"}` 事件（不靠文字嗅探）。
 
