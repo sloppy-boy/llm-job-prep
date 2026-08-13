@@ -164,7 +164,9 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
           if (i >= 0 && next[i].role === "assistant") next[i] = { ...next[i], handoff: true };
           return next;
         });
-        setHandoff((h) => ({ ...h, question: lastQuestionRef.current }));
+        // 整体复位弹窗状态（回答清空、step 回 reply、清 error、清 draft），
+        // 保证同会话第二次收到 human_handoff 时从回复步骤干净起步，而非停留在 approved/drafted。
+        setHandoff({ open: false, question: lastQuestionRef.current, answer: "", step: "reply", error: undefined });
       },
       onError: (msg) => {
         if (sessionRef.current !== sessionId) return;
@@ -288,6 +290,7 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
             {handoff.step === "drafted" && (
               <>
                 <h3 className="font-bold mb-2">📥 沉淀到知识库</h3>
+                {handoff.error && <p className="text-red-500 text-xs">{handoff.error}</p>}
                 {!handoff.draft ? (
                   <button className="bg-green-600 text-white px-3 py-1 rounded text-sm"
                           onClick={doBackfill}>沉淀</button>

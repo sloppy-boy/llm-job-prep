@@ -158,4 +158,31 @@ describe("ChatWindow", () => {
     expect(mockedApproveBackfill).toHaveBeenCalledWith("x.md");
     expect(screen.getByText(/已发布/)).toBeInTheDocument();
   });
+
+  it("第二次 human_handoff 后弹窗复位到回复步骤", async () => {
+    const user = userEvent.setup();
+    const getHandlers = captureHandlers();
+    mockedHumanReply.mockResolvedValue(true);
+    mockedBackfill.mockResolvedValue({ status: "draft", doc_id: "x.md", path: "backfill/x.md", title: "t" });
+    mockedApproveBackfill.mockResolvedValue(true);
+    render(<ChatWindow sessionId="s1" onSources={vi.fn()} onThinking={vi.fn()} />);
+    // 第一轮完整流程
+    await user.type(screen.getByPlaceholderText("输入问题…"), "问题A");
+    await user.click(screen.getByRole("button", { name: "发送" }));
+    act(() => { getHandlers().onHandoff(); getHandlers().onDone(); });
+    await user.click(await screen.findByRole("button", { name: /转人工/ }));
+    await user.type(screen.getByPlaceholderText("输入人工客服的回答…"), "答案A");
+    await user.click(screen.getByRole("button", { name: "回复" }));
+    await user.click(screen.getByRole("button", { name: "沉淀" }));
+    await user.click(screen.getByRole("button", { name: "确认发布" }));
+    // 第二轮 handoff：弹窗应回到 reply（出现文本域），而非显示「已发布」
+    await user.type(screen.getByPlaceholderText("输入问题…"), "问题B");
+    await user.click(screen.getByRole("button", { name: "发送" }));
+    act(() => { getHandlers().onHandoff(); getHandlers().onDone(); });
+    // 两轮 assistant 消息都带 handoff 标记，会有多个「转人工」按钮，点击最后一轮的那个
+    const handoffButtons = await screen.findAllByRole("button", { name: /转人工/ });
+    await user.click(handoffButtons[handoffButtons.length - 1]);
+    expect(screen.getByPlaceholderText("输入人工客服的回答…")).toBeInTheDocument();
+    expect(screen.queryByText(/已发布/)).not.toBeInTheDocument();
+  });
 });
