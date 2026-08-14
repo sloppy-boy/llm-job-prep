@@ -78,8 +78,29 @@ def test_chat_cache_hit_returns_cached_without_agent(monkeypatch):
     assert called["n"] == 0, "命中缓存不应走 agent 链路"
 
 
-def test_chat_writes_cache_only_without_tools(monkeypatch):
-    """无工具结果的确定性问答写入缓存。"""
+def test_chat_writes_cache_for_gate_pass_without_tools(monkeypatch):
+    """资料足够（gate 通过）且无工具结果的确定性问答写入缓存。"""
+    import app.api.chat as chat_mod
+    written = {}
+    monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
+    monkeypatch.setattr(chat_mod, "cache_set", lambda q, a: written.update({q: a}))
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist, user_id="user-001": {
+        "question": q, "session_id": sid, "history": hist or [],
+        "domain": "policy", "tool_results": [], "retrieved_chunks": []})
+    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: True)
+    monkeypatch.setattr(chat_mod, "llm_chat_stream", _make_stream("答案A"))
+    r = _post("怎么退货")
+    assert written.get("怎么退货") == "答案A"
+    # 流式 token 拼接后比较
+    import json as _json
+    tokens = "".join(_json.loads(p.split("data: ", 1)[1].strip()).get("text", "")
+                     for p in r.text.split("event: message")
+                     if "data: " in p and _json.loads(p.split("data: ", 1)[1].strip()).get("type") == "token")
+    assert tokens == "答案A"
+
+
+def test_chat_does_not_cache_fallback_answer(monkeypatch):
+    """兜底/转人工回答不写缓存：否则回填发布后重问会命中过时的「答不出」缓存而非新知识。"""
     import app.api.chat as chat_mod
     written = {}
     monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
@@ -88,15 +109,10 @@ def test_chat_writes_cache_only_without_tools(monkeypatch):
         "question": q, "session_id": sid, "history": hist or [],
         "domain": "policy", "tool_results": [], "retrieved_chunks": []})
     monkeypatch.setattr(chat_mod, "gate_decision", lambda s: False)
-    monkeypatch.setattr(chat_mod, "llm_chat", lambda msgs, stream=False: "答案A")
-    r = _post("怎么退货")
-    assert written.get("怎么退货") == "答案A"
-    # 兜底整句也走 SSE token 事件，解析拼接后比较
-    import json as _json
-    tokens = "".join(_json.loads(p.split("data: ", 1)[1].strip()).get("text", "")
-                     for p in r.text.split("event: message")
-                     if "data: " in p and _json.loads(p.split("data: ", 1)[1].strip()).get("type") == "token")
-    assert tokens == "答案A"
+    monkeypatch.setattr(chat_mod, "llm_chat", lambda msgs, stream=False: "暂时没找到，可转人工。")
+    r = _post("电子发票怎么开")
+    assert "human_handoff" in r.text
+    assert written == {}, "兜底/转人工回答不应写入缓存"
 
 
 def test_chat_does_not_cache_tool_results(monkeypatch):
@@ -202,16 +218,17 @@ def test_blocking_calls_go_through_thread_pool(monkeypatch):
         return {"question": q, "session_id": sid, "history": hist or [],
                 "domain": "policy", "tool_results": [], "retrieved_chunks": []}
 
-    def fake_llm_chat(msgs, stream=False):
-        return "答"
+    def fake_llm_stream(*a, **k):
+        for ch in "答":
+            yield type("R", (), {"choices": [_FakeMsg(ch)]})()
 
     monkeypatch.setattr(chat_mod, "cache_get", fake_cache_get)
     monkeypatch.setattr(chat_mod, "run_front", fake_front)
-    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: False)
-    monkeypatch.setattr(chat_mod, "llm_chat", fake_llm_chat)
+    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: True)
+    monkeypatch.setattr(chat_mod, "llm_chat_stream", fake_llm_stream)
     r = _post("hi")
     assert r.status_code == 200
-    for name in ("fake_cache_get", "fake_front", "fake_llm_chat", "cache_set", "save_message"):
+    for name in ("fake_cache_get", "fake_front", "fake_llm_stream", "cache_set", "save_message"):
         assert name in seen, f"{name} 应走线程池"
 
 

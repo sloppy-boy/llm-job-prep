@@ -117,8 +117,9 @@ async def chat(req: ChatRequest):
                 kind = _kind_of(tool)
                 if kind:
                     yield _sse({"type": "card", "kind": kind, "data": tool})
+            can_answer = gate_decision(st)
             answer = ""
-            if gate_decision(st):
+            if can_answer:
                 # 真流式：writer 逐 token 增量推送，前端边收边渲染
                 msgs = build_writer_messages(st)
                 stream_resp = await _blocking(llm_chat_stream, msgs)
@@ -137,8 +138,9 @@ async def chat(req: ChatRequest):
                 msgs = build_writer_messages(st)
                 answer = await _blocking(llm_chat, msgs, stream=False) or ""
                 yield _sse({"type": "token", "text": answer})
-            # 仅缓存确定性问答（无工具结果）；订单/物流/退款结果状态会变化，不缓存避免过时
-            if not st.get("tool_results"):
+            # 仅缓存「资料足够」的确定性问答（无工具结果）；兜底/转人工回答不缓存——
+            # 否则回填发布后重问会命中过时的「答不出」缓存，而不是新入库的知识
+            if can_answer and not st.get("tool_results"):
                 await _blocking(cache_set, req.message, answer)
             yield _sse({"type": "sources", "items": st.get("retrieved_chunks", [])})
             # 消息持久化：失败仅吞掉，绝不让 DB 写入异常破坏 SSE 流程
