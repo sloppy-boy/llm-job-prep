@@ -215,6 +215,29 @@ def test_blocking_calls_go_through_thread_pool(monkeypatch):
         assert name in seen, f"{name} 应走线程池"
 
 
+def test_chat_fallback_uses_stream_keyword(monkeypatch):
+    """兜底分支必须用 stream=False 关键字调用 llm_chat，绝不能把 False 塞进 tools 位置参
+    （否则请求 JSON 变 tools: false，DeepSeek 返回 400: invalid type boolean false）。"""
+    import app.api.chat as chat_mod
+    captured = {}
+    import asyncio as _asyncio
+    async def fake_blocking(fn, *a, **k):
+        if fn is chat_mod.llm_chat:  # 只拦截 llm_chat：记录调用约定并返回兜底答案
+            captured.update(a=a, k=k)
+            return "兜底答案"
+        return await _asyncio.to_thread(fn, *a, **k)  # 其余（cache_get/run_front/...）走真实线程池
+    monkeypatch.setattr(chat_mod, "_blocking", fake_blocking)
+    monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, h, uid: {
+        "question": q, "session_id": sid, "history": h or [],
+        "domain": "policy", "tool_results": [], "retrieved_chunks": []})
+    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: False)
+    r = _post("怎么开发票")
+    assert "兜底答案" in r.text
+    assert captured["k"].get("stream") is False, "llm_chat 必须用 stream=False 关键字调用"
+    assert len(captured["a"]) == 1, "除 messages 外不得有第二个位置参数（False 绝不能落进 tools）"
+
+
 def test_chat_emits_human_handoff_on_gate_fail(monkeypatch):
     import app.api.chat as chat_mod
     monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)

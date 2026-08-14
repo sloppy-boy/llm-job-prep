@@ -135,7 +135,7 @@ async def chat(req: ChatRequest):
                 # 资料不足兜底：整句一次返回（诚实话术，无需流式）
                 yield _sse({"type": "human_handoff"})
                 msgs = build_writer_messages(st)
-                answer = await _blocking(llm_chat, msgs, False) or ""
+                answer = await _blocking(llm_chat, msgs, stream=False) or ""
                 yield _sse({"type": "token", "text": answer})
             # 仅缓存确定性问答（无工具结果）；订单/物流/退款结果状态会变化，不缓存避免过时
             if not st.get("tool_results"):
