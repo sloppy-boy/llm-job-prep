@@ -30,7 +30,7 @@ def dispatch(name: str, args: dict, user_id: str = "user-001", ds: OrderDataSour
             data = ds.get_order(args.get("order_id"), user_id)
             return json.dumps(data if data is not None else {"error": "订单不存在"}, ensure_ascii=False)
         if name == "query_logistics":
-            return json.dumps(ds.get_logistics(args.get("order_id")), ensure_ascii=False)
+            return json.dumps(ds.get_logistics(args.get("order_id"), user_id), ensure_ascii=False)
         if name == "request_refund":
             return json.dumps(ds.create_refund(args.get("order_id"), args.get("reason", ""), user_id), ensure_ascii=False)
         if name == "escalate_to_human":

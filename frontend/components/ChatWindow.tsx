@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import MessageCard from "./MessageCard";
-import { streamChat, type ChatMessage } from "@/lib/sse";
+import { streamChat, type ChatMessage, MAX_HISTORY } from "@/lib/sse";
 import { fetchHistory, submitFeedback, humanReply, backfill, approveBackfill } from "@/lib/api";
 
 const SUGGESTIONS = ["怎么申请退货？", "订单到哪了？", "退款多久到账？"];
@@ -120,12 +120,17 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
     const userText = (text ?? input).trim();
     if (!userText || busy) return;
     lastQuestionRef.current = userText;
+    // 多轮上下文：把当前这轮之前的最近 N 条消息作为 history 带给后端
+    // （模型据此理解"上一轮我说了什么"，不再是单轮失忆）
+    const history = messages
+      .slice(-MAX_HISTORY)
+      .map((m) => ({ role: m.role, content: m.content }));
     setInput(""); setBusy(true); setRating(null); setRatingError(false);
     setMessages((ms) => [...ms, { role: "user", content: userText }, { role: "assistant", content: "", cards: [], retryText: userText, failed: false }]);
-    onThinking("正在识别问题类别...");
+    onThinking("正在识别问题类型...");
     // streamChat 立刻返回 promise，并在微任务里 resolve { cancel }；不等流结束即可拿到取消句柄。
     // 回调里的 sessionRef 守卫：会话切换后旧流的迟到回调被丢弃，杜绝旧 token 污染新会话。
-    const p = streamChat(sessionId, userText, {
+    const p = streamChat(sessionId, userText, history, {
       onThinking: (s) => {
         if (sessionRef.current !== sessionId) return;
         onThinking(s);

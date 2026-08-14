@@ -24,7 +24,16 @@ class VectorStore:
                 vectors_config=VectorParams(size=dim, distance=Distance.COSINE))
 
     def reset(self):
-        """清空并重建集合（重建 KB 前调用）。Qdrant 删除异步，轮询等待完成再重建。"""
+        """清空并重建集合（重建 KB 前调用）。
+
+        用 recreate_collection 原子替换：delete+create 在 qdrant 本地模式下，
+        旧存储目录未清理完就重建同名集合会把旧数据"复活"（实测旧点残留，
+        新旧索引叠加导致检索被重复 chunk 污染）。旧客户端回退 delete+轮询等待。
+        """
+        vectors_config = VectorParams(size=1024, distance=Distance.COSINE)
+        if hasattr(self.client, "recreate_collection"):
+            self.client.recreate_collection(self.collection, vectors_config=vectors_config)
+            return
         if self.client.collection_exists(self.collection):
             self.client.delete_collection(self.collection)
             deadline = time.time() + 5

@@ -13,17 +13,26 @@ export type ChatMessage = {
   human?: boolean;
 };
 
-// 服务间认证 Key：dev 默认 dev-local-key，生产通过 NEXT_PUBLIC_API_KEY 环境变量配置（构建期内联）
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "dev-local-key";
+// 服务间认证 Key：开发环境默认 dev-local-key；生产必须显式配置 NEXT_PUBLIC_API_KEY
+// （构建期内联），未配置时置空——请求带空 Key 会被后端 401，避免静默用弱默认值上线
+const API_KEY =
+  process.env.NEXT_PUBLIC_API_KEY ||
+  (process.env.NODE_ENV === "development" ? "dev-local-key" : "");
 
 // 区分“用户主动取消”（AbortError）与真实异常：主动取消不展示错误提示
 function isAbortError(e: unknown): boolean {
   return typeof e === "object" && e !== null && (e as { name?: string }).name === "AbortError";
 }
 
+export type HistoryItem = { role: "user" | "assistant"; content: string };
+
+// 送入后端的对话历史条数上限（与后端 MAX_HISTORY 一致，双保险）
+export const MAX_HISTORY = 8;
+
 export async function streamChat(
   sessionId: string,
   message: string,
+  history: HistoryItem[],
   handlers: {
     onThinking: (s: string) => void;
     onToken: (t: string) => void;
@@ -38,6 +47,9 @@ export async function streamChat(
   const controller = new AbortController();
   const signal = controller.signal;
 
+  // 传输层再截断一次：调用方可能直接传入超长 history（双保险，与 ChatWindow/后端一致）
+  const hist = history.slice(-MAX_HISTORY);
+
   // 流式逻辑在后台异步执行；外层立刻返回 { cancel }，调用方无需等流结束即可拿到取消句柄
   (async () => {
     let resp: Response;
@@ -45,7 +57,7 @@ export async function streamChat(
       resp = await fetch("/api/v1/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": API_KEY },
-        body: JSON.stringify({ session_id: sessionId, message }),
+        body: JSON.stringify({ session_id: sessionId, message, history: hist }),
         signal,
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);

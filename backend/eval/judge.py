@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 from pathlib import Path
 from app.agents.graph import run_agent
@@ -19,12 +20,19 @@ def _check_store():
         raise
 
 def judge(points: list[str], answer: str) -> bool:
-    """LLM 判分：回答是否覆盖全部要点。注意用词不同但要点覆盖也算。"""
+    """LLM 判分：回答是否覆盖全部要点。注意用词不同但要点覆盖也算。
+
+    稳定性设计：要求 judge 先简述理由、最后一行输出裁决，再解析**最后出现**的
+    PASS/FAIL——实测"只输出PASS/FAIL"的极简 prompt 会把明确拒绝/完整覆盖
+    的正确答案误判为 FAIL（false negative），推理先行能显著降低抖动。
+    """
     check = chat([
-        {"role": "system", "content": "你是严格的评测员。判断回答是否覆盖了列出的全部要点。注意：要点都覆盖了即使用词不同也算覆盖。全部覆盖输出PASS，有任何遗漏输出FAIL。只输出PASS或FAIL。"},
-        {"role": "user", "content": f"要点：{points}\n回答：{answer}"},
+        {"role": "system", "content": "你是严格的评测员。判断回答是否覆盖了列出的全部要点。注意：要点都覆盖了即使用词不同也算覆盖。"},
+        {"role": "user", "content": f"要点：{points}\n回答：{answer}\n请先简述判断理由，最后一行只输出 PASS 或 FAIL。"},
     ], stream=False)
-    return check.strip().upper().startswith("PASS")
+    # 解析裁决：理由里可能提及 PASS/FAIL 字样，取最后一次出现的才是最终裁决
+    verdicts = re.findall(r"\b(PASS|FAIL)\b", check.upper())
+    return bool(verdicts) and verdicts[-1] == "PASS"
 
 def main():
     _check_store()

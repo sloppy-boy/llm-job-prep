@@ -6,7 +6,7 @@ import { streamChat } from "@/lib/sse";
 import { fetchHistory, submitFeedback, humanReply, backfill, approveBackfill } from "@/lib/api";
 
 // mock 网络相关模块：ChatWindow 依赖 streamChat（SSE）与 fetchHistory/submitFeedback（REST）。
-vi.mock("@/lib/sse", () => ({ streamChat: vi.fn() }));
+vi.mock("@/lib/sse", () => ({ streamChat: vi.fn(), MAX_HISTORY: 8 }));
 vi.mock("@/lib/api", () => ({
   fetchHistory: vi.fn(),
   submitFeedback: vi.fn(),
@@ -25,7 +25,7 @@ const mockedApproveBackfill = vi.mocked(approveBackfill);
 // 让 streamChat mock 捕获 handlers，测试再手动触发 onToken/onError/onDone
 function captureHandlers() {
   let handlers: any;
-  mockedStreamChat.mockImplementation(async (_sid: string, _msg: string, h: any) => {
+  mockedStreamChat.mockImplementation(async (_sid: string, _msg: string, _hist: any, h: any) => {
     handlers = h;
     return { cancel: vi.fn() };
   });
@@ -55,7 +55,7 @@ describe("ChatWindow", () => {
     await user.type(screen.getByPlaceholderText("输入问题…"), "我的订单");
     await user.click(screen.getByRole("button", { name: "发送" }));
 
-    expect(mockedStreamChat).toHaveBeenCalledWith("s1", "我的订单", expect.any(Object));
+    expect(mockedStreamChat).toHaveBeenCalledWith("s1", "我的订单", expect.any(Array), expect.any(Object));
 
     act(() => {
       getHandlers().onToken("您");
@@ -64,6 +64,31 @@ describe("ChatWindow", () => {
     });
 
     expect(screen.getByText("您好")).toBeInTheDocument();
+  });
+
+  it("第二轮发送时把第一轮对话作为 history 带给后端", async () => {
+    const user = userEvent.setup();
+    const getHandlers = captureHandlers();
+
+    render(<ChatWindow sessionId="s1" onSources={vi.fn()} onThinking={vi.fn()} />);
+    // 第一轮
+    await user.type(screen.getByPlaceholderText("输入问题…"), "订单到哪了");
+    await user.click(screen.getByRole("button", { name: "发送" }));
+    act(() => {
+      getHandlers().onToken("已发货");
+      getHandlers().onDone();
+    });
+    // 第二轮
+    await user.type(screen.getByPlaceholderText("输入问题…"), "那物流呢");
+    await user.click(screen.getByRole("button", { name: "发送" }));
+
+    const secondCall = mockedStreamChat.mock.calls[1];
+    expect(secondCall[1]).toBe("那物流呢");
+    // history 包含第一轮的 user + assistant 两条消息
+    expect(secondCall[2]).toEqual([
+      { role: "user", content: "订单到哪了" },
+      { role: "assistant", content: "已发货" },
+    ]);
   });
 
   it("新消息到达时自动滚动到底部", async () => {
@@ -122,7 +147,7 @@ describe("ChatWindow", () => {
     expect(mockedStreamChat).toHaveBeenCalledTimes(2);
     // 第二次调用的 user 消息文本与原来一致
     expect(mockedStreamChat.mock.calls[1][1]).toBe("订单到哪了");
-    expect(mockedStreamChat).toHaveBeenLastCalledWith("s1", "订单到哪了", expect.any(Object));
+    expect(mockedStreamChat).toHaveBeenLastCalledWith("s1", "订单到哪了", expect.any(Array), expect.any(Object));
   });
 
   it("收到 human_handoff 后显示转人工按钮", async () => {

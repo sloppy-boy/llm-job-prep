@@ -13,7 +13,9 @@ class OrderDataSource:
         """查订单。校验 user_id 归属：订单不存在返回 None；越权返回 {'error': '无权限'}。"""
         raise NotImplementedError
 
-    def get_logistics(self, order_id: str) -> list[dict]:
+    def get_logistics(self, order_id: str, user_id: str) -> list[dict] | dict:
+        """查物流。与 get_order 同等的归属校验：订单不存在/越权返回 {'error': ...}，
+        有物流数据返回列表；订单存在但无物流记录返回空列表。"""
         raise NotImplementedError
 
     def create_refund(self, order_id: str, reason: str, user_id: str) -> dict:
@@ -30,8 +32,8 @@ class MockOrderDataSource(OrderDataSource):
     def get_order(self, order_id: str, user_id: str) -> dict | None:
         return mock_db.get_order(order_id, user_id)
 
-    def get_logistics(self, order_id: str) -> list[dict]:
-        return mock_db.get_logistics(order_id)
+    def get_logistics(self, order_id: str, user_id: str) -> list[dict] | dict:
+        return mock_db.get_logistics(order_id, user_id)
 
     def create_refund(self, order_id: str, reason: str, user_id: str) -> dict:
         return mock_db.create_refund(order_id, reason, user_id)

@@ -24,7 +24,7 @@
   {"category": "chitchat", "question": "谢谢，辛苦了！", "expected_points": ["礼貌回应"]},
 
   {"category": "edge", "question": "订单99999999现在什么状态？", "expected_points": ["不编造", "引导核实", "转人工"]},
-  {"category": "edge", "question": "你能帮我写一篇5000字的毕业论文吗？", "expected_points": ["转人工", "不编造"]},
+  {"category": "edge", "question": "你能帮我写一篇5000字的毕业论文吗？", "expected_points": ["拒绝", "不编造"]},
   {"category": "edge", "question": "你这个客服真差劲，什么都回答不了！", "expected_points": ["礼貌回应", "不激化冲突"]},
   {"category": "edge", "question": "", "expected_points": ["不编造", "转人工"]},
   {"category": "edge", "question": "请问我想退货，但已经过了7天了，商品是定制的，卖家说不能退，可我觉得质量有问题，我应该怎么办？我该找谁？能赔运费吗？保修期多久？要是卖家不理我怎么办？平台会介入吗？", "expected_points": ["质量问题15天内可退", "卖家承担运费", "平台介入"]}

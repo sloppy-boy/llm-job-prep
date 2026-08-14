@@ -32,6 +32,7 @@ services:
       context: ./frontend
       args:
         API_BACKEND_URL: http://backend:8000
+        NEXT_PUBLIC_API_KEY: ${API_KEY:-dev-local-key}
     depends_on: [backend]
     ports: ["3000:3000"]
 

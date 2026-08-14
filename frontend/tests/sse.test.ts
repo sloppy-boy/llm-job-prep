@@ -41,7 +41,7 @@ describe("streamChat", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const h = makeHandlers();
-    await streamChat("s1", "hi", h);
+    await streamChat("s1", "hi", [], h);
     await vi.waitFor(() => expect(h.onDone).toHaveBeenCalled());
 
     expect(h.onThinking).toHaveBeenCalledWith("正在识别问题");
@@ -67,7 +67,7 @@ describe("streamChat", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, body: sseStream(chunks) }));
 
     const h = makeHandlers();
-    await streamChat("s1", "hi", h);
+    await streamChat("s1", "hi", [], h);
     await vi.waitFor(() => expect(h.onDone).toHaveBeenCalled());
 
     expect(h.onToken).toHaveBeenCalledTimes(1);
@@ -79,7 +79,7 @@ describe("streamChat", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503 }));
 
     const h = makeHandlers();
-    await streamChat("s1", "hi", h);
+    await streamChat("s1", "hi", [], h);
     await vi.waitFor(() => expect(h.onError).toHaveBeenCalled());
 
     expect(h.onError).toHaveBeenCalledWith("服务暂时不可用，请稍后重试");
@@ -105,11 +105,33 @@ describe("streamChat", () => {
     );
 
     const h = makeHandlers();
-    const p = streamChat("s1", "hi", h);
+    const p = streamChat("s1", "hi", [], h);
     const { cancel } = await p;
     cancel();
     await vi.waitFor(() => expect(h.onDone).toHaveBeenCalled());
 
     expect(h.onError).not.toHaveBeenCalled();
+  });
+
+  it("history 随请求体发送且客户端截断到 MAX_HISTORY 条", async () => {
+    const chunks = ['data: {"type":"done"}\n'];
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, body: sseStream(chunks) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const long = Array.from({ length: 20 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: `m${i}`,
+    }));
+    const h = makeHandlers();
+    await streamChat("s1", "继续", long, h);
+    await vi.waitFor(() => expect(h.onDone).toHaveBeenCalled());
+
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body.history.length).toBe(8);
+    // 20 条截断后取后 8 条（m12..m19）：第 7 个是 m19，第 6 个是 m18
+    expect(body.history[6]).toEqual({ role: "user", content: "m18" });
+    expect(body.history[7]).toEqual({ role: "assistant", content: "m19" });
+    expect(body.message).toBe("继续");
   });
 });

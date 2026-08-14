@@ -10,8 +10,8 @@ from app.config import settings
 from app.ratelimit import get_store
 from app.db.sessions import save_message
 from app.llm import chat as llm_chat
-from app.agents.nodes import gate_decision, build_writer_messages
-from app.agents import nodes
+from app.agents.nodes import gate_decision, build_writer_messages, OFFTOPIC_REPLY
+from app.agents.graph import build_front_graph
 
 router = APIRouter()
 
@@ -41,14 +41,28 @@ def _sse(data: dict) -> str:
     """构造一条 SSE 事件帧：event: message + data: <json>，符合 text/event-stream 协议。"""
     return f"event: message\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
+MAX_HISTORY = 8  # 送入 writer 上下文的历史消息条数上限（防超长/滥用）
+
+# 前置段用编译后的 LangGraph 图执行（router→tool→retriever），模块级单例复用编译结果
+_front_graph = build_front_graph()
+
 def run_front(question: str, session_id: str, history, user_id: str = "user-001") -> dict:
-    """前置段：路由→工具→检索，返回含 domain/tool_results/retrieved_chunks 的状态。"""
-    st = {"question": question, "session_id": session_id,
-          "history": history or [], "tool_results": [], "user_id": user_id}
-    st.update(nodes.router_node(st))
-    st.update(nodes.tool_node(st))
-    st.update(nodes.retriever_node(st))
-    return st
+    """前置段：路由→工具→检索（LangGraph 图同步 invoke），返回含 domain/tool_results/retrieved_chunks 的状态。
+
+    history 由前端携带（最近 N 轮对话），这里做两层防线：
+    1. 只保留合法 {role, content} 条目（防任意 JSON 注入提示词）；
+    2. 截断到 MAX_HISTORY 条，控制送入 LLM 的上下文长度。
+    """
+    clean = []
+    for m in (history or []):
+        if isinstance(m, dict) and m.get("role") in ("user", "assistant") \
+                and isinstance(m.get("content"), str):
+            clean.append({"role": m["role"], "content": m["content"][:2000]})
+    return _front_graph.invoke({
+        "question": question, "session_id": session_id,
+        "history": clean[-MAX_HISTORY:], "user_id": user_id,
+        "tool_results": [], "retrieved_chunks": [],
+    })
 
 def llm_chat_stream(messages):
     return llm_chat(messages, stream=True)
@@ -113,6 +127,19 @@ async def chat(req: ChatRequest):
                 return
             # 前置段同步执行：路由→工具→检索，拿到领域/工具结果/检索切片后闸门判定
             st = await _blocking(run_front, req.message, req.session_id, req.history, req.user_id)
+            # 域外问题直接挡掉：确定性模板，不调 LLM、不进转人工
+            if st.get("domain") == "offtopic":
+                yield _sse({"type": "thinking", "status": "识别到售后范围之外的问题"})
+                answer = OFFTOPIC_REPLY
+                yield _sse({"type": "token", "text": answer})
+                try:
+                    await _blocking(save_message, req.session_id, "user", req.message)
+                    await _blocking(save_message, req.session_id, "assistant", answer,
+                                    {"domain": "offtopic", "had_tools": False, "cached": False})
+                except Exception:
+                    pass  # 持久化失败不影响 SSE 返回
+                yield _sse({"type": "done"})
+                return
             for tool in st.get("tool_results", []):
                 kind = _kind_of(tool)
                 if kind:

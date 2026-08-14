@@ -13,7 +13,7 @@ def test_chat_returns_text(monkeypatch):
 def test_chat_retries_then_fallback(monkeypatch):
     """_retry 内部主模型 3 次失败后走降级模型。mock _chat_once，仍应 4 次调用。"""
     calls = []
-    def flaky_once(messages, tools, model, stream):
+    def flaky_once(messages, tools, model, stream, client):
         calls.append(model)
         if model == "deepseek-chat":
             raise RuntimeError("boom")
@@ -22,6 +22,39 @@ def test_chat_retries_then_fallback(monkeypatch):
     monkeypatch.setattr(llm.settings, "model_fallback", "deepseek-reasoner")
     assert llm.chat([{"role": "user", "content": "hi"}]) == "fallback-ok"
     assert len(calls) == 4  # 3 次主 + 1 次降级
+
+
+def test_fallback_uses_separate_provider_client(monkeypatch):
+    """降级走独立 provider：主模型失败后，备用调用使用 fallback client（不同 base_url/Key），
+    而不是同一 Key 同一端点再试一次（此前 model_fallback 与 model_primary 相同，降级形同虚设）。"""
+    import app.llm as llm_mod
+    calls = []
+
+    class FakeMsg:
+        content = "fallback-ok"
+
+    class FakeResp:
+        usage = None
+        choices = [type("C", (), {"message": FakeMsg()})]
+
+    def make_client(tag):
+        class _Completions:
+            def create(self, **kwargs):
+                calls.append((tag, kwargs["model"]))
+                if tag == "primary":
+                    raise RuntimeError("boom")
+                return FakeResp()
+        class _Chat:
+            completions = _Completions()
+        class _Client:
+            chat = _Chat()
+        return _Client()
+
+    monkeypatch.setattr(llm_mod, "_client", make_client("primary"))
+    monkeypatch.setattr(llm_mod, "_fallback_client", lambda: make_client("fallback"))
+    monkeypatch.setattr(llm_mod.settings, "model_fallback", "fallback-model")
+    assert llm_mod.chat([{"role": "user", "content": "hi"}]) == "fallback-ok"
+    assert calls == [("primary", llm_mod.settings.model_primary)] * 3 + [("fallback", "fallback-model")]
 
 def test_chat_with_tools(monkeypatch):
     """chat_with_tools 解析结构化 tool_calls，返回 (content, tool_calls)。"""

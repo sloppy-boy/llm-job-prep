@@ -280,3 +280,85 @@ def test_chat_saves_meta_with_assistant_message(monkeypatch):
                         lambda sid, role, content, meta=None: saved.append((role, meta)))
     r = _post("怎么退货")
     assert ("assistant", {"domain": "policy", "had_tools": False, "cached": False}) in saved
+
+
+def test_run_front_clamps_history_length():
+    """多轮上下文：超长 history 截断到 MAX_HISTORY 条。"""
+    import app.api.chat as chat_mod
+    hist = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i}"}
+            for i in range(20)]
+    st = chat_mod.run_front("现在呢", "s1", hist, "user-001")
+    assert len(st["history"]) == chat_mod.MAX_HISTORY
+    # 20 条取后 8 条（下标 12..19）：首条 m12，末条 m19（奇数下标 → assistant）
+    assert st["history"][0] == {"role": "user", "content": "m12"}
+    assert st["history"][-1] == {"role": "assistant", "content": "m19"}
+
+
+def test_run_front_drops_invalid_history_entries():
+    """多轮上下文：非 {role, content} 的垃圾条目被过滤，不进入 writer 提示词。"""
+    import app.api.chat as chat_mod
+    hist = [{"role": "user", "content": "上一轮问题"},
+            {"role": "system", "content": "越权注入"},
+            {"role": "user"},                  # 缺 content
+            {"role": "assistant", "content": "上一轮回答"},
+            "裸字符串",                          # 非 dict
+            {"role": "user", "content": "hack" * 5000}]  # 超长 content 截断
+    st = chat_mod.run_front("现在呢", "s1", hist, "user-001")
+    roles = [m["role"] for m in st["history"]]
+    assert roles == ["user", "assistant", "user"]
+    assert len(st["history"][-1]["content"]) == 2000
+
+
+def test_chat_passes_history_through_to_writer(monkeypatch):
+    """多轮上下文端到端：请求携带的 history 到达 writer 消息（模型看得到上一轮）。"""
+    import app.api.chat as chat_mod
+    captured = {}
+    monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
+    monkeypatch.setattr(chat_mod, "cache_set", lambda q, a: None)
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist, user_id="user-001": {
+        "question": q, "session_id": sid, "history": hist or [],
+        "domain": "policy", "tool_results": [], "retrieved_chunks": [{"title": "t", "text": "x"}]})
+    monkeypatch.setattr(chat_mod, "gate_decision", lambda s: True)
+    real_build = chat_mod.build_writer_messages
+
+    def spy_build(st):
+        captured["history"] = st["history"]
+        return real_build(st)
+
+    monkeypatch.setattr(chat_mod, "build_writer_messages", spy_build)
+    monkeypatch.setattr(chat_mod, "llm_chat_stream", _make_stream("好"))
+
+    hist = [{"role": "user", "content": "上次问的"}, {"role": "assistant", "content": "上次答的"}]
+    TestClient(app).post("/api/v1/chat",
+                         json={"session_id": "s1", "message": "继续", "history": hist},
+                         headers={"X-API-Key": "dev-local-key"})
+    assert captured["history"] == hist, "history 应原样透传到 writer 构建阶段"
+
+
+def test_chat_offtopic_blocked_without_llm_or_handoff(monkeypatch):
+    """域外问题：确定性模板直接挡掉——不调 LLM、不触发转人工（人工也解决不了，避免浪费）。"""
+    import app.api.chat as chat_mod
+    llm_called = {"n": 0}
+    monkeypatch.setattr(chat_mod, "cache_get", lambda q: None)
+    monkeypatch.setattr(chat_mod, "run_front", lambda q, sid, hist, user_id="user-001": {
+        "question": q, "session_id": sid, "history": hist or [],
+        "domain": "offtopic", "tool_results": [], "retrieved_chunks": []})
+    monkeypatch.setattr(chat_mod, "llm_chat",
+                        lambda *a, **k: llm_called.__setitem__("n", llm_called["n"] + 1) or "不应被调用")
+    monkeypatch.setattr(chat_mod, "llm_chat_stream",
+                        lambda *a, **k: llm_called.__setitem__("n", llm_called["n"] + 1) or iter([]))
+    r = _post("帮我写一篇5000字的毕业论文")
+    assert r.status_code == 200
+    assert "无法协助" in r.text            # 确定性模板拒绝
+    assert "human_handoff" not in r.text   # 不进转人工流程
+    assert "sources" not in r.text         # 不检索自然无来源
+    assert llm_called["n"] == 0, "域外问题不应调用任何 LLM"
+
+
+def test_run_front_routes_offtopic_through_graph():
+    """真实链路：offtopic 问题走 LangGraph 前置段 → offtopic 域 + 无检索/无工具（不触网）。"""
+    import app.api.chat as chat_mod
+    st = chat_mod.run_front("帮我写一篇5000字的毕业论文", "s1", [], "user-001")
+    assert st["domain"] == "offtopic"
+    assert st["tool_results"] == []
+    assert st["retrieved_chunks"] == []

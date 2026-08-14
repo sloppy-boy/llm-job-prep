@@ -141,24 +141,26 @@
 
 | 节点 | 职责 | 确定性 or LLM |
 |------|------|--------------|
-| `router_node` | 关键词分类：含「你好/在吗/谢谢」→chitchat；含「订单/物流/发货」→order；否则 policy | **规则**（省 token、稳定） |
+| `router_node` | 关键词分类：订单/物流→order；转人工→human；域外话题（论文/天气/编程…）→offtopic；你好/在吗/谢谢→chitchat；否则 policy（转人工、域外均优先于寒暄词） | **规则**（省 token、稳定） |
 | `tool_node` | order 域：`chat_with_tools` 让 LLM 提取订单号+选工具 → `order_tools.dispatch` 执行 → JSON 解析 | **LLM 工具调用** |
-| `retriever_node` | `hybrid_search` + `rerank`；异常兜底 `[]`（绝不中断流程） | 混合检索 |
-| `gate_decision` | 前置闸门：chitchat 恒通过；order 看工具结果非 error；其他看检索非空 | **规则** |
-| `build_writer_messages` | 组装 writer 提示词（按域分 4 分支，见下） | — |
+| `retriever_node` | `hybrid_search` + `rerank`；异常兜底 `[]`（绝不中断流程）；chitchat/human/offtopic 域直接跳过 | 混合检索 |
+| `gate_decision` | 前置闸门：chitchat 恒通过；human 恒转人工；order 看工具结果非 error；其他看检索非空且 top 相关度达标 | **规则** |
+| `build_writer_messages` | 组装 writer 提示词（按域分 6 分支，见下） | — |
 | `writer_node` | 同步生成（供评测 `run_agent` 用） | LLM |
 
-**`build_writer_messages` 的 4 个分支**（决定提示词怎么组装）：
+**`build_writer_messages` 的 6 个分支**（决定提示词怎么组装）：
 1. **chitchat**：寒暄 → 简短回应 + 引导提售后问题
-2. **order + 工具成功**：工具结果是权威，「只基于工具结果回答，不被检索干扰」
-3. **无检索**：诚实话术「没找到相关说明，可转人工，不编造」
-4. **有检索**：拼接 top3 检索块 → 基于资料回答
+2. **human**：确认正在转接人工客服（简短、不编造）
+3. **offtopic**：礼貌拒绝——只处理售后，不给售后以外的建议（**线上走确定性模板 `OFFTOPIC_REPLY`，不调 LLM**；此分支仅供评测图路径）
+4. **order + 工具成功**：工具结果是权威，「只基于工具结果回答，不被检索干扰」
+5. **无检索**：诚实话术「没找到相关说明，可转人工」——**硬性要求回复必须提到"转人工"，不得给售后以外的建议**
+6. **有检索**：拼接 top3 检索块 → 基于资料回答
 
 ### 3.4 能力层
 
 **LLM 层 `app/llm.py`**
-- `_retry`：主模型指数退避重试 3 次（`sleep(2^attempt)`）→ 失败降级备用模型
-- `chat(messages, stream=False)`：非流式，记录 token 用量
+- `_retry`：主模型指数退避重试 3 次（`sleep(2^attempt)`）→ 失败降级**独立 provider**（SiliconFlow DeepSeek 兼容端点 + 独立 Key，`fallback_base_url`/`model_fallback` 可配）——真降级而非同一端点重试
+- `chat(messages, stream=False)`：非流式，按输入/输出 token 分开记录用量与估算成本
 - `chat(messages, stream=True)`：返回 openai 流式迭代器（`_finalize` 原样返回）
 - `chat_with_tools(messages, tools)`：非流式 + 解析 `tool_calls` → `[{name, arguments}]`
 
@@ -213,7 +215,7 @@ async def gen():
     yield done
 ```
 
-**为什么这样拆**：路由/工具/检索不产生大文本（毫秒级），只有写作需要流式——所以前置同步跑，写作边生成边推。评测 `run_agent` 保留同步接口（前置 + 非流式 writer）复用同一套节点函数。
+**为什么这样拆**：路由/工具/检索不产生大文本（毫秒级），只有写作需要流式——所以前置同步跑，写作边生成边推。**前置段用编译后的 LangGraph 图执行**（`build_front_graph`，router→tool→retriever），LangGraph 就是线上编排载体；评测 `run_agent` 用全链路图（含 writer 同步生成）复用同一套节点函数。
 
 ---
 
@@ -288,8 +290,7 @@ llm-job-prep/
 ## 8. 已知局限（面试诚实清单）
 
 - 分块是字符级滑动窗口（非语义分块），可能切断表格
-- `_keyword_boost` 是字符命中简化启发式，非标准 BM25
+- `_keyword_boost` 的 BM25 归一化权重（0.6/0.4）是经验值，未调优
 - 缓存是精确 md5 匹配（非语义缓存）
 - 评测集仅 25 题，96% 统计波动大（错 1 题掉 4%）
-- `run_front`/流式同步阻塞事件循环（demo 可接受，真并发是瓶颈）
-- 单 `_client` 固定 DeepSeek，降级切 SiliconFlow 时未按 provider 拆 client
+- 流式 token 逐帧跨线程 next()，单实例并发下线程池会吃紧（demo 可接受）
