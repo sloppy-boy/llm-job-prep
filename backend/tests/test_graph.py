@@ -27,7 +27,14 @@ def test_gate_passes_when_tools_ok():
 
 def test_gate_passes_when_retrieved():
     from app.agents.nodes import gate_decision
-    assert gate_decision({"domain": "policy", "retrieved_chunks": [{"title": "x", "text": "y"}]}) is True
+    assert gate_decision({"domain": "policy",
+                          "retrieved_chunks": [{"title": "x", "text": "y", "score": 0.8}]}) is True
+
+def test_gate_blocks_weak_relevance():
+    """检索命中但 top 相关度低于阈值（0.60）→ 资料不足，走转人工（保证知识缺口能触发回填闭环）。"""
+    from app.agents.nodes import gate_decision
+    assert gate_decision({"domain": "policy",
+                          "retrieved_chunks": [{"title": "x", "text": "y", "score": 0.3}]}) is False
 
 def test_gate_blocks_no_data():
     from app.agents.nodes import gate_decision

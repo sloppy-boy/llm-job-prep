@@ -1,4 +1,5 @@
 import json
+from app.config import settings
 from app.rag.retrieve import hybrid_search, rerank
 from app.llm import chat, chat_with_tools
 from app.agents.state import AgentState
@@ -71,10 +72,12 @@ def writer_node(state: AgentState) -> dict:
 
 def gate_decision(state: AgentState) -> bool:
     """前置质量闸门：资料足够才流式生成，否则走诚实兜底话术。
-    order 域看工具结果（error 视为不足）；policy/product 看检索命中；chitchat 恒通过。"""
+    order 域看工具结果（error 视为不足）；policy/product 看检索命中且 top 重排相关度达标
+    （低于 retrieval_gate_threshold 视为资料不足→human_handoff）；chitchat 恒通过。"""
     if state["domain"] == "chitchat":
         return True
     if state["domain"] == "order":
         return bool(state.get("tool_results") and isinstance(state["tool_results"][0], dict)
                     and "error" not in state["tool_results"][0])
-    return bool(state.get("retrieved_chunks"))
+    chunks = state.get("retrieved_chunks") or []
+    return bool(chunks) and chunks[0].get("score", 0) >= settings.retrieval_gate_threshold

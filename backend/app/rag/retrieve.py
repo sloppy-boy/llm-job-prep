@@ -101,4 +101,9 @@ def rerank(query: str, docs: list[dict]) -> list[dict]:
                       timeout=30)
     resp.raise_for_status()
     results = sorted(resp.json()["results"], key=lambda r: r["relevance_score"], reverse=True)
-    return [docs[r["index"]] for r in results[:settings.rerank_top_k]]
+    out = []
+    for r in results[:settings.rerank_top_k]:
+        d = docs[r["index"]]
+        d["score"] = r["relevance_score"]  # 附上真实相关度，供质量闸门判定资料是否足够（弱相关→转人工）
+        out.append(d)
+    return out

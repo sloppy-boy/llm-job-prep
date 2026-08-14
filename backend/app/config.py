@@ -19,5 +19,6 @@ class Settings(BaseSettings):
     ratelimit_enabled: bool = True
     ratelimit_global_per_min: int = 120
     ratelimit_user_per_min: int = 30
+    retrieval_gate_threshold: float = 0.60  # policy 闸门：top 重排相关度低于此值视为资料不足→转人工
 
 settings = Settings()
