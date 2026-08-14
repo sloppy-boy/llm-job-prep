@@ -89,6 +89,24 @@ def test_approve_publishes_and_ingests(kb_env, monkeypatch):
     assert "status: published" in raw
 
 
+def test_approve_preserves_frontmatter_newline(kb_env, monkeypatch):
+    """approve 重写 frontmatter 必须保留 status 行后的换行（旧正则 \s* 含 \n，吞掉后产出 status: published--- 粘连）。"""
+    monkeypatch.setattr(kb_mod, "_already_exists", lambda q: False)
+    (kb_mod.BACKFILL_DIR).mkdir(exist_ok=True)
+    path = kb_mod.BACKFILL_DIR / "20260814-x.md"
+    path.write_text("---\ntitle: T\ncategory: backfill\nstatus: draft\n---\n\n正文内容若干。", encoding="utf-8")
+    added = {}
+    class FakeStore:
+        def add(self, texts, metadatas): added["n"] = len(texts)
+    monkeypatch.setattr(kb_mod, "get_store", lambda: FakeStore())
+    monkeypatch.setattr(kb_mod, "invalidate_bm25", lambda: None)
+    out = kb_mod.approve_doc("20260814-x.md")
+    assert out["status"] == "published"
+    raw = path.read_text(encoding="utf-8")
+    assert "status: published\n---" in raw, "frontmatter 闭合 --- 必须独立成行"
+    assert "status: published---" not in raw
+
+
 def test_approve_handles_noncanonical_status(kb_env, monkeypatch):
     monkeypatch.setattr(kb_mod, "_already_exists", lambda q: False)
     (kb_mod.BACKFILL_DIR).mkdir(exist_ok=True)

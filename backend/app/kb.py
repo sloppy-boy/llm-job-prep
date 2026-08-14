@@ -96,9 +96,12 @@ def approve_doc(doc_id: str) -> dict:
     parts = raw.split("---", 2)
     if len(parts) < 3:
         return {"status": "noop", "chunk_count": 0}
-    if not re.search(r"(?m)^status\s*:\s*draft\s*$", parts[1]):
+    if not re.search(r"(?m)^status[^\S\n]*:[^\S\n]*draft[^\S\n]*$", parts[1]):
         return {"status": "noop", "chunk_count": 0}
-    new_frontmatter = re.sub(r"(?m)^status\s*:\s*draft\s*$", "status: published", parts[1])
+    # 注意：用 [^\S\n]（仅水平空白）而非 \s*——后者含 \n，会把 status 行尾换行一并吞掉，
+    # 产出 status: published--- 粘连 frontmatter（2026-08-14 实测修复）
+    new_frontmatter = re.sub(r"(?m)^status[^\S\n]*:[^\S\n]*draft[^\S\n]*$",
+                             "status: published", parts[1])
     path.write_text(f"---{new_frontmatter}---{parts[2]}", encoding="utf-8")
     chunks = chunk_markdown(path)
     get_store().add([c["text"] for c in chunks],
