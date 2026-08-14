@@ -20,7 +20,8 @@ def test_reindex_skips_drafts(kb_env, monkeypatch):
     class FakeStore:
         def reset(self): calls["reset"] = True
         def add(self, texts, metadatas): calls["texts"] = list(texts)
-    monkeypatch.setattr(kb_mod, "VectorStore", lambda: FakeStore())
+    # reindex 复用 get_store() 单例（新建 VectorStore() 会与运行中后端 qdrant_local 持锁冲突）
+    monkeypatch.setattr(kb_mod, "get_store", lambda: FakeStore())
     monkeypatch.setattr(kb_mod, "invalidate_bm25", lambda: None)
     res = kb_mod.reindex()
     assert res["skipped_drafts"] == 1

@@ -8,7 +8,6 @@ from app.llm import chat as llm_chat
 from app.rag.chunker import chunk_markdown, read_frontmatter, is_draft, _extract_frontmatter
 from app.rag.embed import embed_texts
 from app.rag.retrieve import get_store, invalidate_bm25
-from app.rag.vector_store import VectorStore
 
 KB_ROOT = Path(__file__).resolve().parents[1] / "knowledge_base"
 BACKFILL_DIR = KB_ROOT / "backfill"
@@ -136,8 +135,9 @@ def list_docs() -> list[dict]:
 
 
 def reindex() -> dict:
-    """全量重建索引（Obsidian 编辑后调用）。跳 draft。"""
-    store = VectorStore()
+    """全量重建索引（Obsidian 编辑后调用）。跳 draft。
+    复用 get_store() 单例：新建 VectorStore() 会再次打开 qdrant_local，与运行中后端持锁冲突。"""
+    store = get_store()
     store.reset()
     texts, metas, skipped = [], [], 0
     for md in sorted(KB_ROOT.rglob("*.md")):
