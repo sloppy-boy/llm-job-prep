@@ -54,7 +54,7 @@ cd backend && .venv/Scripts/python -m eval.judge
 
 > ⚠️ **评测前先停止后端服务**：Qdrant 本地模式（`qdrant_local/`）不支持多进程并发，若后端仍在运行，评测进程无法加载索引会**静默空检索**，导致准确率假性暴跌（实测 40%）。脚本已内置自检，被占用时会直接报错提示。跑完评测再启动后端即可。
 
-当前评测集已扩充为 **78 题 / 6 类**（order 10、logistics 6、policy 22、product 18、chitchat 8、edge 14），并已完成知识库重建（116 个知识块）。扩充集的真实准确率需在 DeepSeek 与 SiliconFlow 额度可用时重新跑出；在此之前不把历史 25 题结果外推到 78 题。
+当前评测集已扩充为 **78 题 / 6 类**（order 10、logistics 6、policy 22、product 18、chitchat 8、edge 14），并已完成知识库重建（116 个知识块）。使用 SiliconFlow `deepseek-ai/DeepSeek-V4-Flash` 真实跑测一次：**69/78 = 88%**；该数字包含 9 个 badcase，后续修复后需重新跑测。
 
 ## 测试与 CI
 
@@ -66,7 +66,7 @@ cd backend && .venv/Scripts/python -m eval.judge
 
 1. 这是一个**带工具调用的电商售后智能客服**：用户问订单 / 物流 / 退款时，系统不止基于知识库回答，还能真实查订单、查物流、发起退款申请，并带审核机制的多 Agent 协作。
 2. 技术上采用 **RAG + LangGraph 多 Agent + Function Calling 工具调用 + 商用工程化**：检索路由→向量召回→工具执行→前置质量闸门→流式写作（SSE 真流式，逐 token 推送、可中断），叠加会话持久化、语义缓存、评分反馈闭环、请求日志 / token 成本指标、模型重试与降级。
-3. 关键数据：历史基线为自建 25 题评测集 + LLM-as-judge 四维打分，**答案准确率 25/25（100%，仅限 25 题基线）**；当前已扩充至 78 题，待额度恢复后汇报扩充集结果。全链路 Docker Compose 一键部署。
+3. 关键数据：自建 78 题 / 6 类评测集 + LLM-as-judge，使用 SiliconFlow `deepseek-ai/DeepSeek-V4-Flash` 实测 **69/78 = 88%**；历史 25 题基线为 25/25（100%，不与扩充集混用）。全链路 Docker Compose 一键部署。
 
 ## GitHub Flow
 

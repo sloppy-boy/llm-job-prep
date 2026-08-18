@@ -41,7 +41,7 @@
 ## 五、技术方向草案
 
 - 语言：Python
-- 模型 API：DeepSeek（deepseek-chat）
+- 模型 API：主模型 SiliconFlow `deepseek-ai/DeepSeek-V4-Flash`；备用模型 SiliconFlow `deepseek-ai/DeepSeek-V3`
 - 多 Agent 编排：LangGraph（Supervisor 模式）
 - 向量库：Chroma（起步）→ Milvus/Qdrant（进阶）
 - 检索优化：分块策略对比 + 混合检索 + Rerank
@@ -79,7 +79,7 @@
 - mock 订单扩充至 10 条、补齐物流边界；新增 8 篇政策文档、3 篇商品文档和 FAQ Q9/Q10。
 - `eval.judge` 新增 `judge_question(item)`，支持按题传递 `user_id`，可验证订单越权场景；数据集和 judge 回归测试已通过。
 - 知识库已重建：116 个知识块、跳过 1 个草稿。
-- **扩充集真实准确率尚未汇报**：需要 DeepSeek/SiliconFlow 额度恢复后再跑 78 题；历史 25 题的 100% 结果不外推。
+- 使用 SiliconFlow `deepseek-ai/DeepSeek-V4-Flash` 真实跑测一次：**69/78 = 88%**（order 10/10、policy 19/22、product 17/18、chitchat 8/8、edge 11/14、logistics 4/6）。保留 9 个 badcase，后续修复路由/评测口径后再复测；历史 25 题的 100% 结果不与扩充集混用。
 
 **关键排障故事**（面试弹药）：① 评测 92%→40% 假崩 = Qdrant 本地索引被后端占用导致静默空检索（已加自检）；② 真流式 usage 末块 `choices` 空数组会 IndexError（已加防护+回归测试）；③ CI yaml 内联映射含 `${{ }}` 无效、eval 需 `QDRANT_URL=""` 本地模式。
 
