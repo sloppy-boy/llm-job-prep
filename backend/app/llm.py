@@ -3,11 +3,10 @@ from openai import OpenAI
 from app.config import settings
 from app import metrics
 
-# 主模型 client：DeepSeek 官方端点
-_client = OpenAI(api_key=settings.deepseek_api_key, base_url="https://api.deepseek.com")
+# 主模型 client：SiliconFlow 的 DeepSeek-V4-Flash
+_client = OpenAI(api_key=settings.siliconflow_api_key, base_url=settings.primary_base_url)
 
-# 降级 client：独立 provider（SiliconFlow 的 DeepSeek 兼容端点），懒加载——
-# 只有主模型重试失败后才构造，避免无 Key 时启动即报错
+# 备用 client：懒加载，只有主模型重试失败后才构造
 _fallback_client_inst = None
 
 
@@ -37,7 +36,7 @@ def _finalize(resp, stream):
 
 
 def _retry(messages, tools, stream):
-    """指数退避重试主模型，失败降级备用 provider（独立 Key/Endpoint，真降级）。"""
+    """指数退避重试主模型，失败切换备用模型。"""
     last_err = None
     for attempt in range(3):
         try:

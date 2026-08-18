@@ -8,9 +8,10 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     database_url: str = "sqlite:///./mock_orders.db"
     redis_url: str = "redis://localhost:6379"
-    model_primary: str = "deepseek-chat"
-    # 降级走独立 provider（SiliconFlow 的 DeepSeek 兼容端点），Key/Endpoint 均与主模型不同——
-    # 主模型故障时真降级，而不是用同一 Key 同一端点再试一次
+    # 主模型走 SiliconFlow：DeepSeek-V4-Flash
+    primary_base_url: str = "https://api.siliconflow.cn/v1"
+    model_primary: str = "deepseek-ai/DeepSeek-V4-Flash"
+    # 备用模型保持原配置；主模型失败后切换到不同模型
     fallback_base_url: str = "https://api.siliconflow.cn/v1"
     model_fallback: str = "deepseek-ai/DeepSeek-V3"
     embedding_model: str = "BAAI/bge-m3"

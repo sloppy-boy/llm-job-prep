@@ -15,13 +15,21 @@ def test_chat_retries_then_fallback(monkeypatch):
     calls = []
     def flaky_once(messages, tools, model, stream, client):
         calls.append(model)
-        if model == "deepseek-chat":
+        if model == llm.settings.model_primary:
             raise RuntimeError("boom")
         return "fallback-ok"
     monkeypatch.setattr(llm, "_chat_once", flaky_once)
     monkeypatch.setattr(llm.settings, "model_fallback", "deepseek-reasoner")
     assert llm.chat([{"role": "user", "content": "hi"}]) == "fallback-ok"
     assert len(calls) == 4  # 3 次主 + 1 次降级
+
+
+def test_primary_model_uses_siliconflow_deepseek_flash():
+    assert llm.settings.model_primary == "deepseek-ai/DeepSeek-V4-Flash"
+    assert llm.settings.primary_base_url == "https://api.siliconflow.cn/v1"
+    assert str(llm._client.base_url).rstrip("/") == "https://api.siliconflow.cn/v1"
+    assert llm.settings.model_fallback == "deepseek-ai/DeepSeek-V3"
+    assert llm.settings.fallback_base_url == "https://api.siliconflow.cn/v1"
 
 
 def test_fallback_uses_separate_provider_client(monkeypatch):
