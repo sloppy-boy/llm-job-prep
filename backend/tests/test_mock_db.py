@@ -33,3 +33,31 @@ def test_create_refund():
 def test_create_refund_denied_for_other_user():
     """越权：只能退自己的订单"""
     assert create_refund("20260811003", "质量问题", "user-002") == {"error": "无权限", "order_id": "20260811003"}
+
+# ---- 评测集扩充新增（2026-08-18）----
+
+def test_get_order_new_statuses():
+    assert get_order("20260812001", "user-001")["status"] == "待付款"
+    assert get_order("20260812002", "user-001")["status"] == "待发货"
+    assert get_order("20260812004", "user-001")["status"] == "已完成"
+    assert get_order("20260812005", "user-001")["status"] == "已取消"
+    assert get_order("20260812006", "user-001")["status"] == "已发货"
+
+def test_get_order_new_items():
+    assert get_order("20260812003", "user-001")["items"] == "电饭煲 x1"
+
+def test_get_order_new_denied_for_other_user():
+    assert get_order("20260812003", "user-002") == {"error": "无权限", "order_id": "20260812003"}
+
+def test_get_logistics_new_records():
+    assert len(get_logistics("20260812004", "user-001")) >= 2
+    assert len(get_logistics("20260812003", "user-001")) >= 1
+    assert get_logistics("20260812006", "user-001")[0]["event"] == "商家已发货"
+
+def test_get_logistics_03_still_empty():
+    """订单 20260811003 必须保持无物流记录（既有契约）"""
+    assert get_logistics("20260811003", "user-001") == []
+
+def test_get_logistics_cancelled_order_no_record():
+    """已取消订单 20260812005 无物流记录 → 空列表"""
+    assert get_logistics("20260812005", "user-001") == []

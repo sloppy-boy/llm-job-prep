@@ -10,10 +10,20 @@ ORDERS = [
     {"order_id": "20260811002", "status": "运输中", "items": "蓝牙耳机 x1", "amount": 199.0, "created": "2026-08-11", "user_id": DEMO_USER},
     {"order_id": "20260811003", "status": "已签收", "items": "数据线 x2", "amount": 39.9,  "created": "2026-08-08", "user_id": DEMO_USER},
     {"order_id": "20260811004", "status": "退款中", "items": "充电宝 x1", "amount": 129.0, "created": "2026-08-09", "user_id": DEMO_USER},
+    {"order_id": "20260812001", "status": "待付款", "items": "智能手表 x1", "amount": 899.0, "created": "2026-08-12", "user_id": DEMO_USER},
+    {"order_id": "20260812002", "status": "待发货", "items": "扫地机器人 x1", "amount": 1599.0, "created": "2026-08-13", "user_id": DEMO_USER},
+    {"order_id": "20260812003", "status": "运输中", "items": "电饭煲 x1", "amount": 499.0, "created": "2026-08-14", "user_id": DEMO_USER},
+    {"order_id": "20260812004", "status": "已完成", "items": "数据线 x2", "amount": 39.9, "created": "2026-08-05", "user_id": DEMO_USER},
+    {"order_id": "20260812005", "status": "已取消", "items": "蓝牙耳机 x1", "amount": 199.0, "created": "2026-08-06", "user_id": DEMO_USER},
+    {"order_id": "20260812006", "status": "已发货", "items": "充电宝 x1", "amount": 129.0, "created": "2026-08-15", "user_id": DEMO_USER},
 ]
 LOGISTICS = {
     "20260811001": [("08-10 20:00", "商家已发货"), ("08-11 08:00", "到达本地分拨中心")],
     "20260811002": [("08-11 09:00", "揽收"), ("08-11 14:00", "运输中")],
+    "20260811004": [("08-09 18:00", "商家已发货"), ("08-10 12:00", "已签收")],
+    "20260812003": [("08-14 10:00", "揽收"), ("08-14 16:00", "运输中")],
+    "20260812004": [("08-05 09:00", "商家已发货"), ("08-06 10:00", "已签收")],
+    "20260812006": [("08-15 20:00", "商家已发货")],
 }
 
 _initialized = False
