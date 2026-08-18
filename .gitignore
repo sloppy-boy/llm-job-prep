@@ -8,6 +8,7 @@ node_modules/
 .pytest_cache/
 *.egg-info/
 .superpowers/
+.worktrees/
 mock_orders.db
 
 # 评测输出产物
