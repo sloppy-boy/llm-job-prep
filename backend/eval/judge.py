@@ -34,6 +34,18 @@ def judge(points: list[str], answer: str) -> bool:
     verdicts = re.findall(r"\b(PASS|FAIL)\b", check.upper())
     return bool(verdicts) and verdicts[-1] == "PASS"
 
+
+def judge_question(item: dict) -> tuple[bool, str]:
+    """Run one evaluation question and return (pass, answer).
+
+    A question may override the demo user so boundary cases can verify
+    order-ownership checks without changing the normal evaluation path.
+    """
+    r = run_agent(item["question"], session_id="eval",
+                  user_id=item.get("user_id", "user-001"))
+    answer = r.get("draft_answer", "")
+    return judge(item["expected_points"], answer), answer
+
 def main():
     _check_store()
     q_path = Path(__file__).parent / "questions.json"
@@ -41,9 +53,7 @@ def main():
     stats, bad = {}, []
     for i, item in enumerate(data, 1):
         print(f"[{i}/{len(data)}] {item['category']}: {item['question']}")
-        r = run_agent(item["question"], session_id="eval")
-        answer = r.get("draft_answer", "")
-        ok = judge(item["expected_points"], answer)
+        ok, answer = judge_question(item)
         stats.setdefault(item["category"], {"pass": 0, "total": 0})
         stats[item["category"]]["total"] += 1
         if ok:
