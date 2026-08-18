@@ -34,7 +34,9 @@ LLM_PRIMARY_PROVIDER=siliconflow
 MODEL_PRIMARY=deepseek-ai/DeepSeek-V4-Flash
 
 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+DEEPSEEK_MODEL=deepseek-chat
 SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
+SILICONFLOW_MODEL=deepseek-ai/DeepSeek-V4-Flash
 
 CUSTOM_OPENAI_BASE_URL=
 CUSTOM_OPENAI_API_KEY=
@@ -43,7 +45,7 @@ CUSTOM_OPENAI_MODEL=
 BALANCE_WARN_THRESHOLD=5.0
 ```
 
-`LLM_PRIMARY_PROVIDER` 仅允许 `deepseek`、`siliconflow`、`custom-openai`。每个供应商使用独立的 Key 字段，所以切换路由不会丢失已输入 Key。`.env` 已被 gitignore，任何接口、日志和前端状态均不得返回或打印 Key。
+`LLM_PRIMARY_PROVIDER` 仅允许 `deepseek`、`siliconflow`、`custom-openai`。每个供应商使用独立的 Key、Base URL 和模型字段，所以切换路由不会丢失此前的供应商配置。`MODEL_PRIMARY` 始终镜像当前主供应商的模型，兼容现有代码；`.env` 已被 gitignore，任何接口、日志和前端状态均不得返回或打印 Key。
 
 ### 后端运行时设置模块
 
