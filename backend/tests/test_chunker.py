@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from app.rag.chunker import chunk_markdown, read_frontmatter, is_draft, _split_sentences, _units_of
 
 
@@ -108,3 +110,20 @@ def test_read_frontmatter_and_is_draft(tmp_path):
     assert read_frontmatter(d)["status"] == "draft"
     assert is_draft(d) is True
     assert is_draft(p) is False
+
+
+NEW_POLICY_DOCS = ["quality-return.md", "shipping-insurance.md", "price-protection.md",
+                   "coupon.md", "membership.md", "customer-service.md",
+                   "late-delivery.md", "order-cancel.md"]
+
+def test_new_policy_docs_exist_and_published():
+    from pathlib import Path
+    from app.rag.chunker import read_frontmatter, is_draft
+    kb = Path(__file__).resolve().parents[1] / "knowledge_base" / "policies"
+    for name in NEW_POLICY_DOCS:
+        p = kb / name
+        assert p.exists(), f"{name} missing"
+        assert not is_draft(p), f"{name} must be published"
+        meta = read_frontmatter(p)
+        assert meta.get("title"), f"{name} needs title"
+        assert meta.get("category") == "policies", f"{name} category wrong"
