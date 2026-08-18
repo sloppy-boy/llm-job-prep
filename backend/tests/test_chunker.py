@@ -127,3 +127,22 @@ def test_new_policy_docs_exist_and_published():
         meta = read_frontmatter(p)
         assert meta.get("title"), f"{name} needs title"
         assert meta.get("category") == "policies", f"{name} category wrong"
+
+
+NEW_PRODUCT_DOCS = ["smart-watch.md", "robot-vacuum.md", "kitchen-appliance.md"]
+
+def test_new_product_docs_exist_and_published():
+    from pathlib import Path
+    from app.rag.chunker import read_frontmatter, is_draft
+    kb = Path(__file__).resolve().parents[1] / "knowledge_base" / "products"
+    for name in NEW_PRODUCT_DOCS:
+        p = kb / name
+        assert p.exists(), f"{name} missing"
+        assert not is_draft(p), f"{name} must be published"
+        assert read_frontmatter(p).get("category") == "products"
+
+def test_faq_has_append_entries():
+    from pathlib import Path
+    p = Path(__file__).resolve().parents[1] / "knowledge_base" / "products" / "faq.md"
+    text = p.read_text(encoding="utf-8")
+    assert "Q9：" in text and "Q10：" in text
