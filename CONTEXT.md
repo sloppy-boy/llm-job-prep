@@ -74,6 +74,13 @@
 - **CI**：`.github/workflows/ci.yml`（pytest+build 自动、评测手动触发，配好 Secrets 即用）
 - 测试：后端 **54 pytest** + 前端 **16 vitest** + build 全绿
 
+**评测集扩充轮（2026-08-18，feature/fix-review-round2）**：
+- 评测集从 25 题扩充至 **78 题 / 6 类**：order 10、logistics 6、policy 22、product 18、chitchat 8、edge 14。
+- mock 订单扩充至 10 条、补齐物流边界；新增 8 篇政策文档、3 篇商品文档和 FAQ Q9/Q10。
+- `eval.judge` 新增 `judge_question(item)`，支持按题传递 `user_id`，可验证订单越权场景；数据集和 judge 回归测试已通过。
+- 知识库已重建：116 个知识块、跳过 1 个草稿。
+- **扩充集真实准确率尚未汇报**：需要 DeepSeek/SiliconFlow 额度恢复后再跑 78 题；历史 25 题的 100% 结果不外推。
+
 **关键排障故事**（面试弹药）：① 评测 92%→40% 假崩 = Qdrant 本地索引被后端占用导致静默空检索（已加自检）；② 真流式 usage 末块 `choices` 空数组会 IndexError（已加防护+回归测试）；③ CI yaml 内联映射含 `${{ }}` 无效、eval 需 `QDRANT_URL=""` 本地模式。
 
 **优化轮（2026-08-13）**：
