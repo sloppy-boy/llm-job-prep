@@ -32,6 +32,9 @@ services:
       context: ./frontend
       args:
         API_BACKEND_URL: http://backend:8000
+        # 直连地址必须是浏览器可访问的宿主机地址（后端已映射 8000 端口）；若设成 docker
+        # 服务名 backend:8000，浏览器 JS 会解析不到而全部请求失败
+        NEXT_PUBLIC_API_BASE: http://localhost:8000
         NEXT_PUBLIC_API_KEY: ${API_KEY:-dev-local-key}
     depends_on: [backend]
     ports: ["3000:3000"]
