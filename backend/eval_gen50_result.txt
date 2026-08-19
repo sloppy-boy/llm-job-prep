@@ -1,0 +1,77 @@
+Building prefix dict from the default dictionary ...
+Loading model from cache C:\Users\小邋遢\AppData\Local\Temp\jieba.cache
+Loading model cost 0.379 seconds.
+Prefix dict has been built successfully.
+评测子集（--limit 50）：新题 18 + 老题 32
+[1/50] order: 订单20260812005现在什么状态？
+[2/50] order: 我的订单20260812006买的是什么？
+[3/50] order: 订单20260812002买了什么商品？
+[4/50] logistics: 订单20260811001最近的物流信息是什么？
+[5/50] logistics: 订单20260811004的物流轨迹是什么样的？
+[6/50] logistics: 订单20260812002有物流记录吗？
+[7/50] policy: 你们的电话客服热线是多少？几点到几点？
+[8/50] policy: 优惠券过期了还能恢复使用吗？
+[9/50] policy: 会员积分有效期多久？100积分能抵多少现金？
+[10/50] policy: 大促活动期间买的商品降价了，能申请价格保护吗？
+[11/50] product: 蓝牙耳机E2单次续航多久？主动降噪多少dB？
+[12/50] product: 扫地机器人R1 Pro的吸力是多少？
+[13/50] product: 智能手表S1 Pro的续航是几天？
+[14/50] product: 破壁机B1工作时的噪音是多少？
+[15/50] chitchat: 在吗？能帮我个忙吗？
+[16/50] edge: 你是真人客服还是机器人？
+[17/50] edge: 帮我随便查一个订单吧。
+[18/50] edge: 订单20260812005已经取消了，还能申请退款吗？
+[19/50] order: 订单20260811002现在什么状态？
+[20/50] order: 订单20260811001现在什么状态？
+[21/50] order: 订单20260811999现在什么状态？
+[22/50] order: 我的订单20260812003买的是什么？
+[23/50] policy: 云选白条的退款什么时候退回？
+[24/50] policy: 包裹在运输途中丢了怎么赔付？
+[25/50] policy: 充电宝保修期多久？
+[26/50] policy: 会员积分有什么用？
+[27/50] policy: 想换货但没库存了怎么办？
+[28/50] policy: 用了运费险，退货还能不能申请运费理赔？
+[29/50] policy: 退款一般多久到账？
+[30/50] policy: 七天无理由退货的适用条件是什么？
+[31/50] policy: 商品签收后降价了，可以申请价格保护吗？
+[32/50] policy: 什么情况会转人工客服？
+[33/50] policy: 普通七天无理由退货的运费谁承担？
+[34/50] product: 电饭煲K1支持预约吗？最长多久？
+[35/50] product: 智能音箱X1 Pro支持蓝牙吗？
+[36/50] product: 智能音箱X1 Pro支持AUX连接吗？
+[37/50] product: Type-C快充数据线有哪些长度？
+[38/50] product: 充电宝P1能带上飞机吗？额定能量是多少？
+[39/50] product: 扫地机器人R1的吸力是多少？
+[40/50] product: 蓝牙耳机E2支持无线充电吗？
+[41/50] chitchat: 拜拜。
+[42/50] chitchat: 谢谢你的帮助！
+[43/50] chitchat: 你好，请问客服在吗？
+[44/50] edge: 我要投诉商家，能把平台领导的电话给我吗？
+[45/50] edge: 请问我想退货，但已经过了7天了，商品是定制的，卖家说不能退，可我觉得质量有问题，我应该怎么办？我该找谁？能赔运费吗？保修期多久？要是卖家不理我怎么办？平台会介入吗？
+[46/50] edge: 订单99999999现在什么状态？
+[47/50] edge: 你这个客服真差劲，什么都回答不了！
+[48/50] edge: 请帮我写一段Python代码。
+[49/50] logistics: 订单20260812004的物流轨迹是什么样的？
+[50/50] logistics: 订单20260812001有物流记录吗？
+order: 7/7 = 100%
+logistics: 4/5 = 80%
+policy: 13/15 = 87%
+product: 11/11 = 100%
+chitchat: 4/4 = 100%
+edge: 7/8 = 88%
+
+总准确率: 46/50 = 92%
+老题(题库内): 30/32 = 94%
+新题(题库外泛化): 16/18 = 89%
+
+Badcase:
+- [新] logistics | 订单20260811001最近的物流信息是什么？ → 根据查询结果，订单20260811001最近的物流信息是：**2024年8月11日08:00，到达本地分拨中心**。
+- [新] edge | 订单20260812005已经取消了，还能申请退款吗？ → 根据查询结果，订单20260812005状态为“已取消”，但无法确定取消后是否还能申请退款。建议您转接人工客服进一步咨询。
+- [老] policy | 商品签收后降价了，可以申请价格保护吗？ → 根据价保规则，商品在签收后15天内，若同一商品（同链接）出现降价，可以申请补差价。但需注意，价保仅适用于非活动价格，大促、秒杀等特殊活动价格不参与价保。请您确认是否符合这些条件，如有疑问可进一步咨询。
+- [老] policy | 什么情况会转人工客服？ → 正在为您转接人工客服，请稍候。
+Exception ignored in: <function QdrantClient.__del__ at 0x00000172B7D06980>
+Traceback (most recent call last):
+  File "K:\claude\llm-job-prep\backend\.venv\Lib\site-packages\qdrant_client\qdrant_client.py", line 169, in __del__
+  File "K:\claude\llm-job-prep\backend\.venv\Lib\site-packages\qdrant_client\qdrant_client.py", line 178, in close
+  File "K:\claude\llm-job-prep\backend\.venv\Lib\site-packages\qdrant_client\local\qdrant_local.py", line 108, in close
+ImportError: sys.meta_path is None, Python is likely shutting down

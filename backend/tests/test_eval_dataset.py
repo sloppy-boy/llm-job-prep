@@ -1,15 +1,15 @@
 import json
 from pathlib import Path
 
-EXPECTED_COUNTS = {"order": 10, "logistics": 6, "policy": 22,
-                   "product": 18, "chitchat": 8, "edge": 14}
+EXPECTED_COUNTS = {"order": 13, "logistics": 9, "policy": 26,
+                   "product": 22, "chitchat": 9, "edge": 17}
 
 def _questions():
     p = Path(__file__).resolve().parents[1] / "eval" / "questions.json"
     return json.loads(p.read_text(encoding="utf-8"))
 
-def test_total_count_is_78():
-    assert len(_questions()) == 78
+def test_total_count_is_96():
+    assert len(_questions()) == 96
 
 def test_category_counts():
     from collections import Counter

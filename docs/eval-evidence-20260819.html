@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>泛化评测报告 · 电商售后智能客服</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
+    background: #f5f7fa; color: #1f2937; padding: 32px 16px;
+  }
+  .card {
+    max-width: 860px; margin: 0 auto; background: #fff;
+    border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,.06);
+    overflow: hidden;
+  }
+  .head { background: linear-gradient(135deg, #1d4ed8, #2563eb); color: #fff; padding: 28px 36px; }
+  .head h1 { font-size: 22px; margin-bottom: 6px; }
+  .head .sub { font-size: 13px; opacity: .85; }
+  .body { padding: 28px 36px 36px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 24px; }
+  .meta span {
+    font-size: 12px; background: #eff6ff; color: #1d4ed8;
+    border: 1px solid #bfdbfe; border-radius: 999px; padding: 4px 12px;
+  }
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 26px; }
+  .kpi { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 18px 14px; text-align: center; }
+  .kpi .num { font-size: 30px; font-weight: 700; color: #1d4ed8; }
+  .kpi .num.green { color: #16a34a; }
+  .kpi .lbl { font-size: 12px; color: #6b7280; margin-top: 4px; }
+  h2 { font-size: 15px; color: #111827; margin: 22px 0 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #f3f4f6; color: #374151; font-weight: 600; text-align: left; padding: 8px 12px; }
+  td { padding: 8px 12px; border-top: 1px solid #e5e7eb; }
+  tr.ok td.pass { color: #16a34a; font-weight: 600; }
+  .bad { color: #dc2626; font-weight: 600; }
+  .note { font-size: 12px; color: #6b7280; background: #f9fafb; border-left: 3px solid #d1d5db; padding: 10px 14px; margin-top: 22px; line-height: 1.7; }
+  .bad-list { list-style: none; }
+  .bad-list li { font-size: 13px; padding: 8px 0; border-bottom: 1px dashed #e5e7eb; line-height: 1.6; }
+  .tag { display: inline-block; font-size: 11px; border-radius: 4px; padding: 1px 7px; margin-right: 6px; }
+  .tag.new { background: #fef3c7; color: #b45309; }
+  .tag.old { background: #e5e7eb; color: #374151; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <h1>泛化评测报告 · 电商售后智能客服</h1>
+    <div class="sub">题库外新题泛化复测 —— 检验系统是否"死记题库"</div>
+  </div>
+  <div class="body">
+    <div class="meta">
+      <span>日期：2026-08-19</span>
+      <span>模型：DeepSeek-V4-Flash（主模型）</span>
+      <span>判定：LLM-as-judge（推理先行 + 最后裁决）</span>
+      <span>评测集：96 题 / 6 类</span>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi">
+        <div class="num">46/50</div>
+        <div class="lbl">总准确率 <b>92%</b></div>
+      </div>
+      <div class="kpi">
+        <div class="num green">30/32</div>
+        <div class="lbl">题库内老题抽样 <b>94%</b></div>
+      </div>
+      <div class="kpi">
+        <div class="num green">16/18</div>
+        <div class="lbl">题库外新题 <b>89%</b></div>
+      </div>
+    </div>
+
+    <h2>分类明细（50 题 = 新题 18 + 老题 32）</h2>
+    <table>
+      <tr><th>分类</th><th>通过</th><th>结果</th></tr>
+      <tr class="ok"><td>order（订单）</td><td>7/7</td><td class="pass">100%</td></tr>
+      <tr class="ok"><td>product（商品）</td><td>11/11</td><td class="pass">100%</td></tr>
+      <tr class="ok"><td>chitchat（闲聊）</td><td>4/4</td><td class="pass">100%</td></tr>
+      <tr><td>logistics（物流）</td><td>4/5</td><td class="bad">80%</td></tr>
+      <tr><td>policy（政策）</td><td>13/15</td><td class="bad">87%</td></tr>
+      <tr><td>edge（边界）</td><td>7/8</td><td class="bad">88%</td></tr>
+    </table>
+
+    <h2>未命中明细（badcase）</h2>
+    <ul class="bad-list">
+      <li><span class="tag new">新题</span>logistics｜订单 20260811001 最近的物流信息：答"到达本地分拨中心"，漏"商家已发货"点；且 mock 数据无年份，回答出现了模型补全的年份</li>
+      <li><span class="tag new">新题</span>edge｜已取消订单还能退款吗：答对状态"已取消"，未接住"取消后不可退款"，转人工</li>
+      <li><span class="tag old">老题</span>policy｜签收后降价能否价保：漏"联系客服"要点被判定 FAIL</li>
+      <li><span class="tag old">老题</span>policy｜什么情况会转人工：被当成转人工指令直接转接，未回答触发规则</li>
+    </ul>
+
+    <div class="note">
+      <b>口径说明（不混用）：</b>完整评测 78 题 / 6 类当次最好成绩 100%（78/78，另一轮完整跑测）；本报告为题库外泛化复测，50 题子集按分类分层抽样（18 道全新题 + 32 道题库内题）。<br>
+      <b>结论：</b>题库外新题 89% —— 系统非死记题库，具备泛化能力；同时如实记录 4 个未命中点作为后续闭环输入。
+    </div>
+  </div>
+</div>
+</body>
+</html>

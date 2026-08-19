@@ -46,29 +46,86 @@ def judge_question(item: dict) -> tuple[bool, str]:
     answer = r.get("draft_answer", "")
     return judge(item["expected_points"], answer), answer
 
+def _select_subset(data, limit, seed=42):
+    """Build a subset for one run: ALL new questions + stratified sample of existing.
+
+    Keeps category balance: existing questions are sampled per category
+    proportional to their counts, so the subset still covers every category.
+    Used to stress-test generalization (new questions) without a full-bank rerun.
+    """
+    if limit <= 0 or len(data) <= limit:
+        return data
+    new = [q for q in data if q.get("new")]
+    existing = [q for q in data if not q.get("new")]
+    if len(new) >= limit:
+        return new[:limit]
+    from collections import Counter, defaultdict
+    import random
+    rng = random.Random(seed)
+    fill = limit - len(new)
+    by_cat = defaultdict(list)
+    for q in existing:
+        by_cat[q["category"]].append(q)
+    counts = Counter(q["category"] for q in existing)
+    total_old = sum(counts.values())
+    alloc = {c: max(1, counts[c] * fill // total_old) for c in by_cat}
+    diff = fill - sum(alloc.values())
+    for c in sorted(by_cat, key=lambda c: -counts[c]):
+        while diff > 0:
+            room = min(len(by_cat[c]) - alloc[c], diff)
+            if room <= 0:
+                break
+            alloc[c] += room
+            diff -= room
+        if diff <= 0:
+            break
+    picks = []
+    for c in by_cat:
+        n = min(alloc[c], len(by_cat[c]))
+        picks.extend(rng.sample(by_cat[c], n))
+    return new + picks
+
+
 def main():
+    import argparse
     _check_store()
+    parser = argparse.ArgumentParser(description="Run ecommerce agent eval")
+    parser.add_argument("--limit", type=int, default=0,
+                        help="run at most N questions: all new + stratified sample of existing")
+    args = parser.parse_args()
+
     q_path = Path(__file__).parent / "questions.json"
     data = json.loads(q_path.read_text(encoding="utf-8"))
+    if args.limit:
+        data = _select_subset(data, args.limit)
+        print(f"评测子集（--limit {args.limit}）：新题 {sum(1 for q in data if q.get('new'))} + 老题 {sum(1 for q in data if not q.get('new'))}")
+
     stats, bad = {}, []
+    split = {"new": {"pass": 0, "total": 0}, "old": {"pass": 0, "total": 0}}
     for i, item in enumerate(data, 1):
         print(f"[{i}/{len(data)}] {item['category']}: {item['question']}")
         ok, answer = judge_question(item)
         stats.setdefault(item["category"], {"pass": 0, "total": 0})
         stats[item["category"]]["total"] += 1
+        key = "new" if item.get("new") else "old"
+        split[key]["total"] += 1
         if ok:
             stats[item["category"]]["pass"] += 1
+            split[key]["pass"] += 1
         else:
             bad.append({"category": item["category"], "question": item["question"],
-                        "answer": answer[:120]})
+                        "answer": answer[:120], "new": bool(item.get("new"))})
     for cat, s in stats.items():
         print(f"{cat}: {s['pass']}/{s['total']} = {s['pass']/s['total']:.0%}")
     total_p = sum(s['pass'] for s in stats.values())
     total_t = sum(s['total'] for s in stats.values())
     print(f"\n总准确率: {total_p}/{total_t} = {total_p/total_t:.0%}")
+    print(f"老题(题库内): {split['old']['pass']}/{split['old']['total']} = {split['old']['pass']/split['old']['total']:.0%}")
+    print(f"新题(题库外泛化): {split['new']['pass']}/{split['new']['total']} = {split['new']['pass']/split['new']['total']:.0%}")
     print("\nBadcase:")
     for b in bad:
-        print("-", b["category"], "|", b["question"], "→", b["answer"])
+        tag = "[新]" if b["new"] else "[老]"
+        print(f"- {tag} {b['category']} | {b['question']} → {b['answer']}")
 
 if __name__ == "__main__":
     main()

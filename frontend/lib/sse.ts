@@ -19,6 +19,11 @@ const API_KEY =
   process.env.NEXT_PUBLIC_API_KEY ||
   (process.env.NODE_ENV === "development" ? "dev-local-key" : "");
 
+// SSE 直连后端根地址（构建期内联）：Next 的 rewrites 代理对流式响应（SSE）不可靠，
+// 会偶发中途掐断（实测 dev 只通 1 事件、prod 58/48/2）。留空则回退相对路径走代理
+// （默认行为）；本地/演示设为后端地址（如 http://localhost:8000）即绕过代理直连。
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
+
 // 区分“用户主动取消”（AbortError）与真实异常：主动取消不展示错误提示
 function isAbortError(e: unknown): boolean {
   return typeof e === "object" && e !== null && (e as { name?: string }).name === "AbortError";
@@ -54,7 +59,7 @@ export async function streamChat(
   (async () => {
     let resp: Response;
     try {
-      resp = await fetch("/api/v1/chat", {
+      resp = await fetch(`${API_BASE}/api/v1/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": API_KEY },
         body: JSON.stringify({ session_id: sessionId, message, history: hist }),

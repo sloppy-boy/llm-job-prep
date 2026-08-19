@@ -12,8 +12,9 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
         start = time.perf_counter()
-        # 健康检查免鉴权；其余路径校验 X-API-Key
-        if not request.url.path.endswith("/health"):
+        # 健康检查免鉴权；浏览器跨域预检（OPTIONS，不带自定义头）也放行给 CORS 中间件处理；
+        # 其余路径校验 X-API-Key
+        if not request.url.path.endswith("/health") and request.method != "OPTIONS":
             key = request.headers.get("X-API-Key") or ""
             if not hmac.compare_digest(key, settings.api_key):
                 metrics.record_rejected("auth")

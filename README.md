@@ -7,6 +7,22 @@
 
 `Next.js 前端（SSE 真流式）→ FastAPI + LangGraph 多 Agent（路由→工具→检索→前置质量闸门→流式写作）→ Qdrant 向量库 / SQLite 会话 / 语义缓存 / 工具调用（mock 订单库）`，全部经 Docker Compose 一键部署。
 
+## 演示截图
+
+**1. 客服对话（SSE 真流式输出 + 工具调用 + 多轮记忆）**
+
+同一会话依次完成订单查询、物流查询、政策问答、转人工与知识沉淀，全流程真实跑测截图：
+
+![客服对话 1](docs/screenshots/chat-demo-1.png)
+
+![客服对话 2](docs/screenshots/chat-demo-2.png)
+
+![客服对话 3](docs/screenshots/chat-demo-3.png)
+
+**2. 泛化评测报告（题库外新题泛化复测：总 92% / 新题 89% / 老题 94%）**
+
+浏览器打开 [docs/eval-evidence-20260819.html](docs/eval-evidence-20260819.html) 即可查看 / 截图，或直接看[报告截图](docs/screenshots/eval-report.png)。
+
 ## 快速启动
 
 前置：安装 Docker Desktop（Windows/macOS 自带 Compose）。
@@ -54,7 +70,7 @@ cd backend && .venv/Scripts/python -m eval.judge
 
 > ⚠️ **评测前先停止后端服务**：Qdrant 本地模式（`qdrant_local/`）不支持多进程并发，若后端仍在运行，评测进程无法加载索引会**静默空检索**，导致准确率假性暴跌（实测 40%）。脚本已内置自检，被占用时会直接报错提示。跑完评测再启动后端即可。
 
-当前评测集已扩充为 **78 题 / 6 类**（order 10、logistics 6、policy 22、product 18、chitchat 8、edge 14），并已完成知识库重建（116 个知识块）。使用 SiliconFlow `deepseek-ai/DeepSeek-V4-Flash` 真实跑测一次：**69/78 = 88%**；该数字包含 9 个 badcase，后续修复后需重新跑测。
+当前评测集为 **78 题 / 6 类**（order 10、logistics 6、policy 22、product 18、chitchat 8、edge 14），知识库 116 个知识块。使用 SiliconFlow `deepseek-ai/DeepSeek-V4-Flash` 修复后完整跑测 **78/78 = 100%**（当次）；另做题库外泛化复测 50 题 **92%**（新题 16/18 = 89%、老题抽样 30/32 = 94%），证明系统非死记题库。
 
 ## 测试与 CI
 
@@ -66,7 +82,7 @@ cd backend && .venv/Scripts/python -m eval.judge
 
 1. 这是一个**带工具调用的电商售后智能客服**：用户问订单 / 物流 / 退款时，系统不止基于知识库回答，还能真实查订单、查物流、发起退款申请，并带审核机制的多 Agent 协作。
 2. 技术上采用 **RAG + LangGraph 多 Agent + Function Calling 工具调用 + 商用工程化**：检索路由→向量召回→工具执行→前置质量闸门→流式写作（SSE 真流式，逐 token 推送、可中断），叠加会话持久化、语义缓存、评分反馈闭环、请求日志 / token 成本指标、模型重试与降级。
-3. 关键数据：自建 78 题 / 6 类评测集 + LLM-as-judge，使用 SiliconFlow `deepseek-ai/DeepSeek-V4-Flash` 实测 **69/78 = 88%**；历史 25 题基线为 25/25（100%，不与扩充集混用）。全链路 Docker Compose 一键部署。
+3. 关键数据：自建 78 题 / 6 类评测集 + LLM-as-judge，修复后完整实测 **78/78 = 100%**（当次）；题库外 18 道新题泛化复测 **89%**（总 92%）证明泛化能力；历史 25 题基线为 25/25（100%）。全链路 Docker Compose 一键部署。
 
 ## GitHub Flow
 

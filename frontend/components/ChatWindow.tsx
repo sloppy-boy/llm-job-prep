@@ -54,9 +54,11 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
   }
 
   // 转人工流程第一步：提交人工客服回复。成功后追加一条「（人工客服）」消息并进入沉淀阶段。
+  // 注意：这里不再检查 busy——兜底回答仍在流式生成时（busy=true）也应允许人工先回复，
+  // 否则弹窗打开瞬间回复按钮被禁用到流结束，交互上像"卡住"。
   async function doHumanReply() {
     const a = handoff.answer.trim();
-    if (!a || busy) return;
+    if (!a) return;
     setBusy(true);
     const ok = await humanReply(sessionId, handoff.question, a);
     setBusy(false);
@@ -284,11 +286,12 @@ export default function ChatWindow({ sessionId, onSources, onThinking }: {
                           placeholder="输入人工客服的回答…" value={handoff.answer}
                           onChange={(e) => setHandoff((h) => ({ ...h, answer: e.target.value }))} />
                 {handoff.error && <p className="text-red-500 text-xs">{handoff.error}</p>}
+                {busy && <p className="text-gray-400 text-xs">系统兜底回答生成中，可先填写人工回复…</p>}
                 <div className="flex gap-2 mt-2 justify-end">
                   <button className="border rounded px-3 py-1 text-sm"
                           onClick={() => setHandoff((h) => ({ ...h, open: false }))}>取消</button>
                   <button className="bg-blue-500 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
-                          disabled={busy || !handoff.answer.trim()} onClick={doHumanReply}>回复</button>
+                          disabled={!handoff.answer.trim()} onClick={doHumanReply}>回复</button>
                 </div>
               </>
             )}
