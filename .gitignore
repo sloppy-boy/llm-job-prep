@@ -14,5 +14,8 @@ mock_orders.db
 # 评测输出产物
 backend/eval_result.txt
 
+# 运行时沉淀的草稿文档（人工答复→知识库待审核），本地测试产物不进仓库
+backend/knowledge_base/backfill/
+
 # IDE 配置
 .idea/

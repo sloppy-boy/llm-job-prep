@@ -2,18 +2,34 @@ import pytest
 from app import cache
 
 
+def _flush_redis_cache():
+    """清 Redis 精确缓存层。fixture 必须连 Redis 一起清：cache_set 会把键写进 Redis
+    （持久化），而内存层每次运行都清——漏清 Redis 会让依赖"Redis miss"的用例（如
+    test_embed_failure_does_not_crash）读到跨测试/跨运行残留的旧值（实测 2026-08-19）。"""
+    if not cache._available or cache._r is None:
+        return
+    try:
+        keys = cache._r.keys("cache:*")
+        if keys:
+            cache._r.delete(*keys)
+    except Exception:
+        pass
+
+
 @pytest.fixture(autouse=True)
 def _clean_cache(monkeypatch):
-    """每个测试前清空精确缓存与语义索引，防止模块级状态跨测试污染；
+    """每个测试前清空精确缓存（内存 + Redis）与语义索引，防止模块级状态跨测试污染；
     默认 mock embed，防真调 SiliconFlow API。"""
     with cache._lock:
         cache._mem.clear()
         cache._sem.clear()
+    _flush_redis_cache()
     monkeypatch.setattr(cache, "embed_texts", lambda texts: [[1.0, 0, 0, 0] for _ in texts])
     yield
     with cache._lock:
         cache._mem.clear()
         cache._sem.clear()
+    _flush_redis_cache()
 
 
 def test_cache_roundtrip():

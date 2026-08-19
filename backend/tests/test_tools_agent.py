@@ -52,9 +52,35 @@ def _base_state(**kw):
     return s
 
 def test_tool_node_order_domain(monkeypatch):
-    monkeypatch.setattr(nodes, "chat_with_tools",
-                        lambda msgs, tools: ("", [{"name": "query_order", "arguments": {"order_id": "20260811001"}}]))
+    """正则快速路径：显式订单号 + 物流词（"到哪"）→ 直接 query_logistics，零 LLM 调用。
+    若误走 LLM，mock 会抛异常暴露。"""
+    def _boom(msgs, tools):
+        raise AssertionError("正则快速路径不应调用 LLM")
+    monkeypatch.setattr(nodes, "chat_with_tools", _boom)
     out = nodes.tool_node(_base_state(domain="order", question="订单20260811001到哪了"))
+    assert isinstance(out["tool_results"][0], list)  # 物流轨迹数组
+    assert any("商家已发货" in str(t) for t in out["tool_results"][0])
+
+def test_tool_node_order_fast_path_no_refund_side_effect(monkeypatch):
+    """退款意图（即使含订单号）不走正则，避免误触发创建退款记录——交给 LLM 判读。"""
+    captured = []
+    def fake(msgs, tools):
+        captured.append(True)
+        return ("", [{"name": "request_refund", "arguments": {"order_id": "20260811004", "reason": "不想要了"}}])
+    monkeypatch.setattr(nodes, "chat_with_tools", fake)
+    out = nodes.tool_node(_base_state(domain="order", question="订单20260811004申请退款"))
+    assert captured, "退款意图应回退 LLM 判读，不得正则直接执行"
+    assert out["tool_results"][0]["refund_id"]
+
+def test_tool_node_order_falls_back_to_llm(monkeypatch):
+    """无 8 位以上订单号 → 回退 LLM 工具调用（模糊表述仍可解析）。"""
+    captured = []
+    def fake(msgs, tools):
+        captured.append(msgs)
+        return ("", [{"name": "query_order", "arguments": {"order_id": "20260811001"}}])
+    monkeypatch.setattr(nodes, "chat_with_tools", fake)
+    out = nodes.tool_node(_base_state(domain="order", question="帮我查一下我的订单"))
+    assert captured, "无订单号应回退 LLM 调用"
     assert out["tool_results"][0]["status"] == "已发货"
 
 def test_tool_node_non_order():

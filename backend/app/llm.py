@@ -1,10 +1,17 @@
 import time
+import httpx
 from openai import OpenAI
 from app.config import settings
 from app import metrics
 
+# 客户端超时：不加会沿用 OpenAI SDK 默认 600s 读超时——上游挂起时单次调用最多等 10 分钟，
+# 叠加 _retry 的 3 次重试会造成几十秒~数分钟的"假死"。这里收紧到 connect 10s / read 90s，
+# 正常响应（实测 3~8s）完全不受影响，仅把失败判定的最坏时间压到可控。
+_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=90.0, write=30.0, pool=10.0)
+
 # 主模型 client：SiliconFlow 的 DeepSeek-V4-Flash
-_client = OpenAI(api_key=settings.siliconflow_api_key, base_url=settings.primary_base_url)
+_client = OpenAI(api_key=settings.siliconflow_api_key, base_url=settings.primary_base_url,
+                 timeout=_HTTP_TIMEOUT)
 
 # 备用 client：懒加载，只有主模型重试失败后才构造
 _fallback_client_inst = None
@@ -14,7 +21,8 @@ def _fallback_client() -> OpenAI:
     global _fallback_client_inst
     if _fallback_client_inst is None:
         _fallback_client_inst = OpenAI(
-            api_key=settings.siliconflow_api_key, base_url=settings.fallback_base_url)
+            api_key=settings.siliconflow_api_key, base_url=settings.fallback_base_url,
+            timeout=_HTTP_TIMEOUT)
     return _fallback_client_inst
 
 

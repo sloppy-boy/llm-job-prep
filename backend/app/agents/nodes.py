@@ -1,4 +1,5 @@
 import json
+import re
 from app.config import settings
 from app.rag.retrieve import hybrid_search, rerank
 from app.llm import chat, chat_with_tools
@@ -43,9 +44,14 @@ def router_node(state: AgentState) -> dict:
         domain = "policy"
     return {"domain": domain}
 
+# order 域检索快速通道：order 域的 writer 只用工具结果、不用检索切片（见 build_writer_messages），
+# 且闸门只看 tool_results，故跳过检索可省两次外部 API（embed + rerank）显著加速首 token。
+# 工具失败时（如订单不存在）走"未检索到/转人工"兜底，语义也更准确。
+_ORDER_RETRIEVAL_SKIP = ("chitchat", "human", "offtopic", "order")
+
 def retriever_node(state: AgentState) -> dict:
     """检索 + 重排。跨任务契约：RAG 层失败会抛异常，必须兜底为空，让 writer 走诚实话术。"""
-    if state["domain"] in ("chitchat", "human", "offtopic"):
+    if state["domain"] in _ORDER_RETRIEVAL_SKIP:
         return {"retrieved_chunks": []}
     try:
         docs = hybrid_search(state["question"])
@@ -53,18 +59,40 @@ def retriever_node(state: AgentState) -> dict:
     except Exception:
         return {"retrieved_chunks": []}
 
+# 订单号 = 8 位以上连续数字（mock 库 11 位）；话术里的数量/金额等小数字不会误命中。
+# 注意不能用 \d+：会匹配到"2 个"这类小数字当订单号。
+_ORDER_ID_RE = re.compile(r"\d{8,}")
+# 物流语义关键词：命中则选 query_logistics，否则 query_order。刻意不含"发货"——它既可指物流
+# 也可指订单状态（待发货），交给更稳的 query_order 兜底。
+_LOGISTICS_HINTS = ("物流", "到哪", "到货", "配送", "派送", "节点")
+
+def _fast_tool_call(question: str) -> dict | None:
+    """确定性快速路径：提取订单号 + 关键词定工具，免一次 LLM 调用（SiliconFlow 单次 3~8s）。
+    提取不到订单号 / 退款意图（request_refund 有副作用，需 LLM 区分"申请"与"询问进度"）返回 None，
+    由上层回退 LLM 工具调用。"""
+    m = _ORDER_ID_RE.search(question)
+    if not m:
+        return None
+    if any(k in question for k in ("退款", "退货")):
+        return None
+    name = "query_logistics" if any(k in question for k in _LOGISTICS_HINTS) else "query_order"
+    return {"name": name, "arguments": {"order_id": m.group(0)}}
+
 def tool_node(state: AgentState) -> dict:
-    """订单域：让 LLM 决定工具调用并执行；其他域直接透传空结果。失败兜底，不中断流程。"""
+    """订单域：先正则快速提取订单号执行查询（免一次 3~8s 的 LLM 调用，显著加快首 token）；
+    提取不到 / 模糊表述 / 退款意图再回退 LLM 工具调用。其他域直接透传空结果。失败兜底，不中断流程。"""
     if state["domain"] != "order":
         return {"tool_results": []}
     try:
-        _, tool_calls = chat_with_tools([
-            {"role": "system", "content": "从用户话术中提取订单号，选择合适工具。"},
-            {"role": "user", "content": state["question"]},
-        ], order_tools.TOOLS)
-        if not tool_calls:
-            return {"tool_results": [{"error": "未能识别到工具调用"}]}
-        call = tool_calls[0]
+        call = _fast_tool_call(state["question"])
+        if call is None:
+            _, tool_calls = chat_with_tools([
+                {"role": "system", "content": "从用户话术中提取订单号，选择合适工具。"},
+                {"role": "user", "content": state["question"]},
+            ], order_tools.TOOLS)
+            if not tool_calls:
+                return {"tool_results": [{"error": "未能识别到工具调用"}]}
+            call = tool_calls[0]
         result = json.loads(order_tools.dispatch(
             call["name"], call.get("arguments", {}), user_id=state.get("user_id", "user-001")))
     except Exception:
@@ -87,14 +115,26 @@ def build_writer_messages(state: AgentState) -> list[dict]:
                 f"无法协助其他事项；不要编造，不要提供售后以外的建议，不要长篇解释。"
                 f"问题：{state['question']}")
     elif state["domain"] == "order" and state.get("tool_results") and \
-            isinstance(state["tool_results"][0], dict) and "error" not in state["tool_results"][0]:
-        user = (f"系统已查询到订单信息。请**只基于以下工具结果**如实回答用户，"
-                f"不要编造，不要被其他检索内容干扰。{tool_text}\n问题：{state['question']}")
+            not (isinstance(state["tool_results"][0], dict) and "error" in state["tool_results"][0]):
+        # 工具结果权威：订单状态 dict / 物流轨迹 list（含空 list=无记录）都据此如实回答，
+        # 不再落入"知识库未检索到→转人工"话术（否则物流查询明明有轨迹却被引导转人工）。
+        # 物流轨迹要求完整列出全部节点：用户问"最近的物流节点"时模型易只答最新一个，
+        # 漏掉历史节点（judge 按全节点判分，产品上完整轨迹也更有用）。
+        user = (f"系统已查询到订单/物流信息。请**只基于以下工具结果**如实回答用户，不要编造，"
+                f"不要被其他检索内容干扰。若工具结果是物流轨迹，请完整列出所有轨迹节点"
+                f"（时间+事件），不要只挑最新的一个。{tool_text}\n问题：{state['question']}")
     elif not state.get("retrieved_chunks"):
-        user = (f"知识库没有检索到相关内容。请如实告诉用户'暂时没有找到相关说明，可转人工处理'，不要编造。"
-                f"硬性要求：回复中必须明确提到'转人工'；不得提供售后服务以外的建议"
-                f"（例如写论文、咨询导师等），不要编造任何政策或事实。"
-                f"{tool_text}\n问题：{state['question']}")
+        if state["domain"] == "order":
+            # 工具查询失败（如订单不存在/无权限）：如实告知具体原因并引导核实，而非套用
+            # 通用"知识库未检索到"话术——那会让"订单不存在"答成"暂时没有相关说明"，不够准确
+            user = (f"工具查询未成功（结果：{tool_text.strip()}）。请如实告诉用户查询失败的具体原因，"
+                    f"例如订单不存在或无权查看，并引导用户核实订单号；不要编造任何订单信息。"
+                    f"回复中必须明确提到'转人工'。\n问题：{state['question']}")
+        else:
+            user = (f"知识库没有检索到相关内容。请如实告诉用户'暂时没有找到相关说明，可转人工处理'，不要编造。"
+                    f"硬性要求：回复中必须明确提到'转人工'；不得提供售后服务以外的建议"
+                    f"（例如写论文、咨询导师等），不要编造任何政策或事实。"
+                    f"{tool_text}\n问题：{state['question']}")
     else:
         ctx = "\n\n".join(f"[{d['title']}]\n{d['text']}" for d in state["retrieved_chunks"])
         user = f"检索资料：\n{ctx}{tool_text}\n\n问题：{state['question']}"
@@ -118,7 +158,12 @@ def gate_decision(state: AgentState) -> bool:
     if state["domain"] == "human":
         return False
     if state["domain"] == "order":
-        return bool(state.get("tool_results") and isinstance(state["tool_results"][0], dict)
-                    and "error" not in state["tool_results"][0])
+        # 工具结果即权威：订单状态 dict / 物流轨迹 list（含空 list=无记录）都算资料足够；
+        # 仅 error（如订单不存在）视为不足走转人工。旧实现只认 dict，导致物流查询被误转人工。
+        results = state.get("tool_results") or []
+        if not results:
+            return False
+        first = results[0]
+        return not (isinstance(first, dict) and "error" in first)
     chunks = state.get("retrieved_chunks") or []
     return bool(chunks) and chunks[0].get("score", 0) >= settings.retrieval_gate_threshold
